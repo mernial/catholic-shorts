@@ -240,7 +240,7 @@ self.onmessage = async (e) => {
     }
     // 못 맞춘 줄은 앞뒤 줄 사이로 채운다
     const dur = isFinite(audio.duration) ? audio.duration : (hyp[hyp.length - 1].t + 5);
-    const out = refLines.map((l, k) => ({ text: l.text, t: firstT[k], e: lastT[k] }));
+    const out = refLines.map((l, k) => ({ text: l.text, ...(l.sub ? { sub: l.sub } : {}), t: firstT[k], e: lastT[k] }));
     for (let k = 0; k < out.length; k++) {
       if (out[k].t != null) continue;
       const a = k - 1;                                   // 시각이 있는 앞 줄 (없으면 -1)
@@ -350,7 +350,7 @@ self.onmessage = async (e) => {
 
       if (syncing) stopSync();
       S.lines = lines;
-      $('#lyricsIn').value = lines.map((l) => l.text).join('\n');
+      $('#lyricsIn').value = lines.map(lineSource).join('\n');
       scrollY = null;
       const imgs = replanScenes();
       await attachImages(imgs);

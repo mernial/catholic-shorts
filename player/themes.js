@@ -6,7 +6,7 @@ const THEMES = {
   stars:   { name: '별밤',        top: '#0b1430', bottom: '#020308', keys: ['별빛', '별이', '별들', '별을', '별처럼', '밤', '어둠', '달빛', '달님', '잠들', '고요', '꿈', '은하', 'star', 'night', 'moon', 'dark', 'dream'] },
   water:   { name: '물결',        top: '#0d3550', bottom: '#03101a', keys: ['바다', '물결', '물가', '물이', '물을', '강물', '강가', '파도', '샘물', '세례', '호수', '흐르', '생명수', 'sea', 'water', 'river', 'wave', 'ocean'] },
   rain:    { name: '비',          top: '#2a3340', bottom: '#0a0d12', keys: ['비가', '빗', '눈물', '울어', '울며', '울고', '슬픔', '아픔', '외로', '상처', '흐느', 'rain', 'tear', 'cry', 'sorrow'] },
-  snow:    { name: '눈',          top: '#33435a', bottom: '#0d121a', keys: ['겨울', '눈송이', '하얀', '하얗', '눈이 내', '성탄', '크리스마스', '구유', 'snow', 'winter', 'christmas', 'white'] },
+  snow:    { name: '눈',          top: '#33435a', bottom: '#0d121a', keys: ['겨울', '눈송이', '하얀', '하얗', '눈이 내', '성탄', '크리스마스', '구유', '마구간', '탄생', '태어나', 'snow', 'winter', 'christmas', 'white'] },
   petals:  { name: '꽃잎',        top: '#4a2036', bottom: '#14070e', keys: ['꽃', '봄', '향기', '장미', '피어', '정원', '설레', '들판', '꽃잎', 'flower', 'spring', 'rose', 'bloom'] },
   embers:  { name: '불꽃',        top: '#4a1a08', bottom: '#120502', keys: ['불꽃', '불이', '불을', '불길', '촛불', '등불', '성령', '뜨거', '타오르', '열정', 'fire', 'flame', 'candle', 'spirit', 'burn'] },
   sky:     { name: '하늘',        top: '#1d4d7a', bottom: '#0a1a2a', keys: ['하늘', '구름', '바람', '날개', '새처럼', '날아', '자유', '높이', '천국', 'sky', 'cloud', 'wind', 'wing', 'fly', 'heaven'] },
@@ -51,7 +51,7 @@ function planThemeScenes(lines, n, mergeSame, dur) {
   let prev = null, cycle = 0;
   uniq.forEach((s, k) => {
     const end = k + 1 < uniq.length ? uniq[k + 1] : timed.length;
-    const text = timed.slice(s, end).map((l) => l.text).join(' ');
+    const text = timed.slice(s, end).map((l) => `${l.text} ${l.sub || ''}`).join(' ');
     let theme = pickTheme(text);
     if (!theme) {
       // 낱말로 못 고르면 앞 장면과 다른 차분한 장면을 돌아가며 쓴다
@@ -118,7 +118,8 @@ const FX = {
       c.globalAlpha = a * (0.35 + 0.65 * (0.5 + 0.5 * Math.sin(t * s.f + s.p))) * (0.6 + bass * 0.6);
       c.beginPath(); c.arc(s.x * W, s.y * H, s.s, 0, 6.283); c.fill();
     }
-    const mx = W * 0.82, my = H * 0.18, mr = S * 0.045;
+    // 달은 왼쪽 위 구석에: 오른쪽은 가사, 가운데는 표지 자리
+    const mx = W * 0.065, my = H * 0.1, mr = S * 0.04;
     const mg = c.createRadialGradient(mx, my, mr, mx, my, mr * 7);
     mg.addColorStop(0, 'rgba(200,215,255,0.35)'); mg.addColorStop(1, 'rgba(200,215,255,0)');
     c.globalAlpha = a; c.fillStyle = mg; c.fillRect(0, 0, W, H);

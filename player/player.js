@@ -99,13 +99,13 @@ function parseLyrics(text) {
     const tags = [...line.matchAll(tagRe)];
     if (tags.length) {
       const txt = line.replace(tagRe, '').trim();
-      for (const m of tags) out.push({ text: txt, t: +m[1] * 60 + parseFloat(m[2].replace(':', '.')) });
+      for (const m of tags) out.push({ ...splitSub(txt), t: +m[1] * 60 + parseFloat(m[2].replace(':', '.')) });
       continue;
     }
     const mt = line.match(/^\[(ti|ar|al|offset)\s*:(.*)\]$/i);
     if (mt) { meta[mt[1].toLowerCase()] = mt[2].trim(); continue; }
     if (/^\[[^\]]*\]$/.test(line)) continue;            // [Verse], [Chorus] 등 Suno 구간 표시
-    out.push({ text: line, t: null });
+    out.push({ ...splitSub(line), t: null });
   }
   if (meta.offset) offsetMs = parseFloat(meta.offset) || 0;
   if (out.length && out.every((l) => l.t != null)) {
@@ -114,6 +114,15 @@ function parseLyrics(text) {
   }
   return { lines: out, meta };
 }
+
+/* "원문 // 번역" → { text, sub } */
+function splitSub(line) {
+  const k = line.indexOf(' // ');
+  if (k < 0) return { text: line };
+  const sub = line.slice(k + 4).trim();
+  return sub ? { text: line.slice(0, k).trim(), sub } : { text: line.slice(0, k).trim() };
+}
+const lineSource = (l) => (l.sub ? `${l.text} // ${l.sub}` : l.text);
 
 function lineStart(i) { const t = S.lines[i].t; return t == null ? null : t + S.offset; }
 
@@ -149,7 +158,7 @@ function toLRC() {
   const head = [];
   if (S.title) head.push(`[ti:${S.title}]`);
   if (S.artist) head.push(`[ar:${S.artist}]`);
-  const body = S.lines.map((l, i) => (l.t == null ? l.text : fmt(Math.max(0, lineStart(i))) + l.text));
+  const body = S.lines.map((l, i) => (l.t == null ? lineSource(l) : fmt(Math.max(0, lineStart(i))) + lineSource(l)));
   return head.concat(body).join('\n') + '\n';
 }
 
@@ -322,16 +331,21 @@ function lyricLayout(L) {
   if (lyricCache && lyricCache.key === key) return lyricCache;
   ctx.font = `800 ${size}px ${FONT}`;
   const rowH = size * 1.3, gap = size * 0.75;
+  const subSize = Math.round(size * 0.52), subH = subSize * 1.4;
   let y = 0;
   const items = S.lines.map((l) => {
+    ctx.font = `800 ${size}px ${FONT}`;
     const rows = wrapText(ctx, l.text || '♪  ♪  ♪', L.w);
     const widths = rows.map((r) => ctx.measureText(r).width);
-    const h = rows.length * rowH;
-    const it = { rows, widths, y, h, c: y + h / 2 };
+    ctx.font = `500 ${subSize}px ${FONT}`;
+    const subRows = l.sub ? wrapText(ctx, l.sub, L.w) : [];
+    const subWidths = subRows.map((r) => ctx.measureText(r).width);
+    const h = rows.length * rowH + (subRows.length ? size * 0.15 + subRows.length * subH : 0);
+    const it = { rows, widths, subRows, subWidths, y, h, c: y + h / 2 };
     y += h + gap;
     return it;
   });
-  lyricCache = { key, size, rowH, items };
+  lyricCache = { key, size, rowH, subSize, subH, items };
   return lyricCache;
 }
 
@@ -625,6 +639,13 @@ function drawLyrics(L, now) {
         }
       }
     });
+    if (it.subRows.length) {
+      ctx.font = `500 ${lay.subSize}px ${FONT}`;
+      ctx.shadowColor = 'rgba(0,0,0,.6)'; ctx.shadowBlur = 10;
+      ctx.fillStyle = isCur ? `rgba(255,255,255,0.88)` : `rgba(255,255,255,${0.85 * alpha})`;
+      const base = top + it.rows.length * lay.rowH + lay.size * 0.15;
+      it.subRows.forEach((row, r) => ctx.fillText(row, L.cx - it.subWidths[r] / 2, base + lay.subH * (r + 0.5)));
+    }
   }
   ctx.restore();
 }
@@ -727,7 +748,7 @@ function renderList() {
     const t = li.querySelector('.t');
     t.textContent = fmtStamp(l.t);
     if (l.t == null) t.classList.add('none');
-    li.querySelector('.txt').textContent = l.text || '♪ (간주)';
+    li.querySelector('.txt').textContent = (l.text || '♪ (간주)') + (l.sub ? ` · ${l.sub}` : '');
     ol.appendChild(li);
   });
   if (syncing) { const n = ol.querySelector('li.next'); if (n) n.scrollIntoView({ block: 'center' }); }
@@ -815,7 +836,7 @@ function applyLyricsText(text, fromFile) {
   S.lines = lines;
   if (meta.ti && !S.title) { S.title = meta.ti; $('#title').value = S.title; }
   if (meta.ar && !S.artist) { S.artist = meta.ar; $('#artist').value = S.artist; }
-  if (fromFile) $('#lyricsIn').value = lines.map((l) => l.text).join('\n');
+  if (fromFile) $('#lyricsIn').value = lines.map(lineSource).join('\n');
   scrollY = null;
   renderList(); save();
 }
@@ -1043,7 +1064,7 @@ async function restore() {
   } catch (err) { console.warn('불러오기 실패', err); }
   $('#title').value = S.title;
   $('#artist').value = S.artist;
-  $('#lyricsIn').value = S.lines.map((l) => l.text).join('\n');
+  $('#lyricsIn').value = S.lines.map(lineSource).join('\n');
   $('#offset').value = S.offset;
   $('#offset').dispatchEvent(new Event('input'));
   document.querySelector(`input[name=aspect][value="${S.aspect}"]`).checked = true;

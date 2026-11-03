@@ -30,9 +30,15 @@ function pickTheme(text) {
 }
 
 /* 가사 줄을 n개 장면으로 나누고 장면마다 분위기를 고른다 */
-function planThemeScenes(lines, n, mergeSame) {
+function planThemeScenes(lines, n, mergeSame, dur) {
   const timed = lines.filter((l) => l.t != null);
-  if (!timed.length) return [{ t: 0, theme: 'light' }];
+  if (!timed.length) {
+    // 가사가 없는 연주곡: 곡 길이를 고르게 나눠 차분한 장면을 차례로
+    const calm = ['light', 'sky', 'petals', 'water', 'stars', 'cross'];
+    const total = isFinite(dur) && dur > 0 ? dur : 180;
+    n = Math.max(1, n);
+    return Array.from({ length: n }, (_, k) => ({ t: +(total * k / n).toFixed(2), theme: calm[k % calm.length] }));
+  }
   n = Math.max(1, Math.min(n, timed.length));
   // 가사 사이가 길게 빈 곳(간주)을 우선 경계로 쓰고, 나머지는 줄 수로 고르게 나눈다
   const cuts = new Set();

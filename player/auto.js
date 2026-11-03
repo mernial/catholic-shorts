@@ -271,7 +271,7 @@ self.onmessage = async (e) => {
 
   function replanScenes() {
     const imgs = sceneBlobs.filter(Boolean);
-    const scenes = planThemeScenes(S.lines, sceneCountFor(imgs.length), !imgs.length);
+    const scenes = planThemeScenes(S.lines, sceneCountFor(imgs.length), !imgs.length, audio.duration);
     clearScenes();
     S.scenes = scenes;
     return imgs;
@@ -327,11 +327,22 @@ self.onmessage = async (e) => {
       });
       clearInterval(tick);
       const clean = cleanChunks(chunks, dur);
-      if (!clean.length) throw new Plain('노래에서 가사를 알아듣지 못했어요. 「3. 가사」에 가사를 붙여넣고 다시 해보세요.');
-
-      status('3/3 박자를 맞추고 배경 장면을 고르는 중…');
       const refText = $('#lyricsIn').value.trim();
       const ref = refText ? parseLyrics(refText).lines.filter((l) => l.text) : [];
+      if (!clean.length) {
+        if (ref.length) throw new Plain('노래에서 목소리를 찾지 못해 붙여넣은 가사의 박자를 맞추지 못했어요. 「4. 싱크 손보기」에서 손으로 맞춰주세요.');
+        // 목소리가 없으면 연주곡: 가사 없이 곡 길이에 맞춰 배경 장면만
+        if (syncing) stopSync();
+        S.lines = [];
+        scrollY = null;
+        await attachImages(replanScenes());
+        S.bg = 'scene'; $('#bgMode').value = 'scene';
+        renderList(); renderScenes(); save();
+        status('완료! 노래하는 목소리가 없는 연주곡으로 보여요. 가사 없이 곡 길이에 맞춰 배경 장면만 만들었어요.', 'ok');
+        return;
+      }
+
+      status('3/3 박자를 맞추고 배경 장면을 고르는 중…');
       let lines = null;
       if (ref.length) lines = alignLyrics(ref, clean);
       const usedRef = !!lines;
@@ -401,7 +412,7 @@ self.onmessage = async (e) => {
 
   el('autoBtn2').addEventListener('click', run);
   el('replanBtn').addEventListener('click', async () => {
-    if (!S.lines.some((l) => l.t != null)) { status('박자가 맞춰진 가사가 있어야 장면을 나눌 수 있어요.', 'err'); return; }
+    if (S.lines.length && !S.lines.some((l) => l.t != null)) { status('박자가 맞춰진 가사가 있어야 장면을 나눌 수 있어요.', 'err'); return; }
     const imgs = replanScenes();
     await attachImages(imgs);
     renderScenes(); save();

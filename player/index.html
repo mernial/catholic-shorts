@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>가사 플레이어</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="player.css">
+</head>
+<body>
+<div id="app">
+  <section id="stageWrap">
+    <canvas id="stage" width="1920" height="1080"></canvas>
+    <div id="dropHint" hidden>여기에 놓으세요 · 음악 / 표지 / 가사(.lrc .txt)</div>
+  </section>
+
+  <aside id="panel">
+    <header class="ph">
+      <h1>가사 플레이어</h1>
+      <p>Suno 노래 + 가사 + 앨범 표지 → 방송 화면 · 영상 파일</p>
+    </header>
+
+    <div class="transport">
+      <button id="playBtn" class="primary" type="button">▶ 재생</button>
+      <span id="timeLbl">0:00 / 0:00</span>
+      <input id="seek" type="range" min="0" max="1000" value="0" aria-label="재생 위치">
+    </div>
+
+    <details open>
+      <summary>1. 파일</summary>
+      <label class="file">음악 파일 <input type="file" id="audioFile" accept="audio/*,.mp3,.wav,.m4a"></label>
+      <label class="file">앨범 표지 <input type="file" id="coverFile" accept="image/*"></label>
+      <label>제목 <input id="title" type="text" autocomplete="off"></label>
+      <label>아티스트 <input id="artist" type="text" autocomplete="off"></label>
+      <p class="muted">파일을 왼쪽 화면에 끌어다 놓아도 됩니다.</p>
+    </details>
+
+    <details open>
+      <summary>2. 가사</summary>
+      <textarea id="lyricsIn" rows="8" placeholder="Suno의 가사를 그대로 붙여넣으세요.&#10;[Verse], [Chorus] 같은 표시는 자동으로 빠집니다.&#10;LRC 형식([00:12.34] 가사)도 됩니다."></textarea>
+      <div class="row">
+        <button id="applyLyrics" type="button">가사 적용</button>
+        <label class="btn">LRC 불러오기<input type="file" id="lrcFile" accept=".lrc,.txt,text/plain" hidden></label>
+        <button id="exportLrc" type="button">LRC 저장</button>
+      </div>
+    </details>
+
+    <details open>
+      <summary>3. 싱크 맞추기</summary>
+      <p class="muted">「싱크 시작」을 누르면 처음부터 재생됩니다. 각 줄을 부르기 <b>시작할 때</b> <kbd>Space</kbd>나 <kbd>Enter</kbd>를 누르세요. <kbd>Backspace</kbd>는 한 줄 되돌리기. 목록의 줄을 누르면 그 줄부터 다시 맞춥니다.</p>
+      <div class="row">
+        <button id="syncBtn" class="primary" type="button">싱크 시작</button>
+        <button id="autoBtn" type="button">자동 배분</button>
+      </div>
+      <label>전체 밀기/당기기 <span id="offsetLbl" class="muted">0.00초</span>
+        <input type="range" id="offset" min="-3" max="3" step="0.05" value="0">
+      </label>
+      <ol id="lineList"></ol>
+    </details>
+
+    <details open>
+      <summary>4. 화면</summary>
+      <div class="seg" role="radiogroup" aria-label="화면 비율">
+        <label><input type="radio" name="aspect" value="16:9" checked> 가로 16:9</label>
+        <label><input type="radio" name="aspect" value="9:16"> 세로 9:16 (Shorts)</label>
+      </div>
+      <label>시각화
+        <select id="viz">
+          <option value="bars">막대</option>
+          <option value="ring">원형 (LP판)</option>
+          <option value="wave">파형</option>
+        </select>
+      </label>
+      <label>가사 크기 <input type="range" id="fontScale" min="0.7" max="1.5" step="0.05" value="1"></label>
+      <label class="check"><input type="checkbox" id="showTitle" checked> 제목 · 아티스트 표시</label>
+    </details>
+
+    <details open>
+      <summary>5. 방송 · 내보내기</summary>
+      <div class="row">
+        <button id="broadcastBtn" type="button">방송 화면 <kbd>H</kbd></button>
+        <button id="fsBtn" type="button">전체 화면 <kbd>F</kbd></button>
+      </div>
+      <p class="muted">방송 화면에서는 편집 창이 숨고 그림만 남습니다. OBS에서는 「창 캡처」로 이 창을 잡으세요. 화면을 클릭하면 재생/정지, <kbd>H</kbd>를 다시 누르면 편집 창이 돌아옵니다.</p>
+      <div class="row">
+        <button id="recBtn" type="button">영상 파일로 저장</button>
+        <span id="recStatus" class="muted"></span>
+      </div>
+      <p class="muted">노래 길이만큼 실제로 재생하면서 녹화합니다. 녹화하는 동안 이 탭을 맨 앞에 두세요.</p>
+      <button id="resetBtn" class="danger" type="button">새로 시작</button>
+    </details>
+    <p class="muted foot">작업 내용은 이 브라우저에 자동 저장됩니다.</p>
+  </aside>
+</div>
+<audio id="audio" preload="auto"></audio>
+<script src="player.js"></script>
+</body>
+</html>

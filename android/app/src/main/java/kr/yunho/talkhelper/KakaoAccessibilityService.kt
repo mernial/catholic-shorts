@@ -19,8 +19,8 @@ import android.widget.TextView
 
 /**
  * 1) 카카오톡이 화면에 있을 때만 '도우미' 버튼을 띄움
- * 2) 버튼을 누르면 카톡 화면에 보이는 글을 모아 도우미 화면(HelperActivity)을 엶
- * 3) 다듬은 답장을 카톡 입력창에 넣고 전송 버튼을 누름
+ * 2) 버튼을 누르면 카톡 화면에 보이는 글(대화 맥락)을 모아 도우미 화면(HelperActivity)을 엶
+ * 3) 정중하게 다듬은 답장을 카톡 입력창에 넣고 전송 버튼을 누름
  * 카카오톡 이외의 앱 화면은 읽지 않음.
  */
 class KakaoAccessibilityService : AccessibilityService() {
@@ -31,7 +31,6 @@ class KakaoAccessibilityService : AccessibilityService() {
 
         private val SEND_IDS = listOf("send", "send_button", "send_btn", "btn_send", "sendButton").map { "$KAKAO:id/$it" }
         private val SEND_WORDS = listOf("전송", "보내기", "Send")
-        private val TITLE_IDS = listOf("title", "toolbar_title", "chat_room_title", "chatroom_title").map { "$KAKAO:id/$it" }
     }
 
     private val handler = Handler(Looper.getMainLooper())
@@ -96,15 +95,6 @@ class KakaoAccessibilityService : AccessibilityService() {
         return out
     }
 
-    fun roomTitle(texts: List<String>): String {
-        Store.findRoomIn(texts)?.let { return it }
-        val root = kakaoRoot() ?: return ""
-        for (id in TITLE_IDS) {
-            root.findAccessibilityNodeInfosByViewId(id)?.firstOrNull { !it.text.isNullOrBlank() }?.let { return it.text.toString() }
-        }
-        return ""
-    }
-
     private fun findEditable(root: AccessibilityNodeInfo?) = walk(root) { it.isEditable && it.isVisibleToUser }
 
     private fun findSend(root: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
@@ -147,7 +137,7 @@ class KakaoAccessibilityService : AccessibilityService() {
 
     private fun updateBubble() {
         val apps = appWindows().mapNotNull { it.root?.packageName?.toString() }
-        val show = Prefs(this).bubbleEnabled && KAKAO in apps && packageName !in apps
+        val show = KAKAO in apps && packageName !in apps
         if (show) showBubble() else removeBubble()
     }
 
@@ -212,12 +202,9 @@ class KakaoAccessibilityService : AccessibilityService() {
     }
 
     private fun openHelper() {
-        val texts = screenTexts()
-        HelperActivity.pendingScreenText = texts.joinToString("\n")
+        HelperActivity.pendingScreenText = screenTexts().joinToString("\n")
         val intent = Intent(this, HelperActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            .putExtra(HelperActivity.EXTRA_ROOM, roomTitle(texts))
-            .putExtra(HelperActivity.EXTRA_FROM_KAKAO, true)
         startActivity(intent)
     }
 }

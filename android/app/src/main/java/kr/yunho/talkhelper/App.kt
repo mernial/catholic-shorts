@@ -1,18 +1,12 @@
 package kr.yunho.talkhelper
 
-import android.app.Application
+import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import kr.yunho.talkhelper.core.Claude
 import java.util.concurrent.Executors
 
-class App : Application() {
-    override fun onCreate() {
-        super.onCreate()
-        Store.init(this)
-        Speaker.init(this)
-    }
-}
+const val KAKAO = "com.kakao.talk"
 
 /** 백그라운드에서 일하고 결과는 메인 스레드로 */
 object Bg {
@@ -33,7 +27,7 @@ object ClaudeProvider {
     private var client: Claude? = null
 
     @Synchronized
-    fun get(ctx: android.content.Context): Claude? {
+    fun get(ctx: Context): Claude? {
         val k = Prefs(ctx).apiKey.trim()
         if (k.isBlank()) return null
         if (k != key) {

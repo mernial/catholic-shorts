@@ -94,17 +94,4 @@ object Ui {
         addView(v, lp)
         return v
     }
-
-    /** 말풍선 */
-    fun bubble(ctx: Context, who: String, msg: String, mine: Boolean): View = vbox(ctx).apply {
-        val name = text(ctx, who, 14f, color = MUTED)
-        val body = text(ctx, msg, 19f).apply {
-            background = rounded(ctx, if (mine) MINE else THEM, 16)
-            val p = dp(ctx, 12)
-            setPadding(p, dp(ctx, 8), p, dp(ctx, 8))
-        }
-        gravity = if (mine) Gravity.END else Gravity.START
-        addView(name, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        addView(body, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-    }
 }

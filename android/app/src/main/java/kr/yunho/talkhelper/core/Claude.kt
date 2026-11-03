@@ -28,14 +28,10 @@ class Claude(apiKey: String, baseUrl: String? = null) {
         .apply { if (baseUrl != null) baseUrl(baseUrl) }
         .build()
 
-    /** 내가 대충 말한 것을 [mode] 말투의 카톡 메시지로 */
-    fun rewrite(mode: Mode, spoken: String, room: String, context: List<ChatLine>, screenText: String?, myName: String, myRole: String): String =
-        ask(Prompts.rewriteSystem(myName, myRole), Prompts.rewriteUser(mode, spoken, room, context, screenText))
+    /** 내가 대충 말한 것을 정중한 카톡 메시지로. [screenText] 는 그 순간 카톡 화면에 보이던 글 */
+    fun rewrite(spoken: String, screenText: String?, myName: String, myRole: String): String =
+        ask(Prompts.system(myName, myRole), Prompts.user(spoken, screenText))
             .trim().removeSurrounding("\"").trim()
-
-    /** 받은 카톡을 소리 내어 읽기 좋은 짧은 요약으로 */
-    fun summarize(room: String, lines: List<ChatLine>, screenText: String?, withRoom: Boolean = false): String =
-        ask(Prompts.SUMMARY_SYSTEM.trim(), Prompts.summaryUser(room, lines, screenText, withRoom)).trim()
 
     private fun ask(system: String, user: String): String {
         val params = MessageCreateParams.builder()

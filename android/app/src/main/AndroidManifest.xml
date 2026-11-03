@@ -4,19 +4,15 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
-    <!-- 음성 인식·음성 읽기 엔진을 찾기 위해 (Android 11+) -->
+    <!-- 음성 인식 엔진과 카카오톡 앱을 찾기 위해 (Android 11+) -->
     <queries>
         <intent>
             <action android:name="android.speech.RecognitionService" />
-        </intent>
-        <intent>
-            <action android:name="android.intent.action.TTS_SERVICE" />
         </intent>
         <package android:name="com.kakao.talk" />
     </queries>
 
     <application
-        android:name=".App"
         android:allowBackup="false"
         android:icon="@drawable/ic_launcher"
         android:label="@string/app_name"
@@ -40,22 +36,6 @@
             android:launchMode="singleTask"
             android:taskAffinity="kr.yunho.talkhelper.helper"
             android:theme="@style/Helper" />
-
-        <activity
-            android:name=".SettingsActivity"
-            android:exported="false"
-            android:parentActivityName=".MainActivity" />
-
-        <!-- 카카오톡 알림을 읽어 받은 메시지를 모음 -->
-        <service
-            android:name=".KakaoNotificationListener"
-            android:exported="true"
-            android:label="@string/app_name"
-            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
-            <intent-filter>
-                <action android:name="android.service.notification.NotificationListenerService" />
-            </intent-filter>
-        </service>
 
         <!-- 카톡 위 떠 있는 버튼 + 카톡 입력창에 글을 넣고 전송 -->
         <service

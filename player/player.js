@@ -20,6 +20,8 @@ const S = {
   viz: 'bars',
   fontScale: 1,
   showTitle: true,
+  bg: 'ai',             // 'ai' = 장면 그림, 'cover' = 앨범 표지 흐리게
+  scenes: [],           // [{ t, prompt }] 배경 그림이 바뀌는 시각과 그림 설명
 };
 let audioBlob = null, audioName = '';
 let coverBlob = null, coverImg = null, coverURL = null, audioURL = null;
@@ -130,6 +132,9 @@ function lineProgress(i, now) {
   let end = null;
   for (let j = i + 1; j < S.lines.length; j++) { const t = lineStart(j); if (t != null && t > start) { end = t; break; } }
   if (end == null) end = isFinite(audio.duration) ? audio.duration : start + 5;
+  // 자동 싱크는 줄이 끝나는 시각도 안다
+  const e = S.lines[i].e;
+  if (e != null && e + S.offset > start) end = Math.min(end, e + S.offset + 0.15);
   // 간주가 긴 경우엔 글자 수로 대략 부르는 시간을 추정
   const est = 1.2 + 0.32 * [...S.lines[i].text].length;
   const dur = Math.max(0.3, Math.min(end - start, Math.max(est, 2)) - 0.15);
@@ -347,7 +352,7 @@ function frame(nowMs) {
   const now = audio.currentTime || 0;
   const L = layout();
 
-  drawBackground();
+  drawBackground(now);
   drawParticles(dt);
   drawCover(L.cover);
   if (S.showTitle) drawTitle(L.cover, L.title);
@@ -360,9 +365,71 @@ function frame(nowMs) {
   requestAnimationFrame(frame);
 }
 
-function drawBackground() {
+/* ---------- 장면 그림 (가사 내용에 맞춘 배경) ---------- */
+let sceneImgs = [], sceneBlobs = [], scenesVersion = 0, savedScenes = -1;
+let bgCur = -1, bgPrev = -1, bgFadeStart = 0;
+
+function blobToImage(blob) {
+  return new Promise((res) => {
+    if (!blob) { res(null); return; }
+    const img = new Image();
+    img.onload = () => res(img);
+    img.onerror = () => res(null);
+    img.src = URL.createObjectURL(blob);
+  });
+}
+
+async function setSceneImage(i, blob) {
+  sceneBlobs[i] = blob;
+  sceneImgs[i] = await blobToImage(blob);
+  scenesVersion++;
+  save();
+}
+
+function clearScenes() {
+  S.scenes = []; sceneImgs = []; sceneBlobs = [];
+  bgCur = bgPrev = -1; scenesVersion++;
+}
+
+function sceneAt(now) {
+  let idx = -1;
+  for (let i = 0; i < S.scenes.length; i++) {
+    if (sceneImgs[i] && S.scenes[i].t + S.offset <= now) idx = i;
+  }
+  return idx >= 0 ? idx : sceneImgs.findIndex(Boolean);
+}
+
+function drawSceneImg(i, alpha, now) {
+  const img = sceneImgs[i];
+  if (!img || alpha <= 0) return;
+  const lt = Math.max(0, now - (S.scenes[i].t + S.offset));
+  // 천천히 다가가며 옆으로 흐르는 움직임 (켄 번스)
+  const sc = 1.05 + 0.08 * Math.min(1, lt / 40) + bass * 0.025;
+  const dir = i % 2 ? 1 : -1;
+  const dx = dir * W * 0.025 * Math.min(1, lt / 40);
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.translate(W / 2 + dx, H / 2);
+  ctx.scale(sc, sc);
+  drawImageCover(ctx, img, -W / 2, -H / 2, W, H);
+  ctx.restore();
+}
+
+function drawBackground(now) {
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, W, H);
+  if (S.bg === 'ai' && sceneImgs.some(Boolean)) {
+    const idx = sceneAt(now);
+    if (idx !== bgCur) { bgPrev = bgCur; bgCur = idx; bgFadeStart = clock; }
+    const f = Math.min(1, (clock - bgFadeStart) / 1.8);
+    const ease = f * f * (3 - 2 * f);
+    if (bgPrev >= 0 && f < 1) drawSceneImg(bgPrev, 1, now);
+    drawSceneImg(bgCur, bgPrev >= 0 ? ease : 1, now);
+    ctx.fillStyle = `rgba(0,0,0,${0.4 - level * 0.1})`;
+    ctx.fillRect(0, 0, W, H);
+    drawVignette();
+    return;
+  }
   const sc = 1.08 + bass * 0.06 + Math.sin(clock * 0.15) * 0.015;
   ctx.save();
   ctx.translate(W / 2 + Math.sin(clock * 0.07) * 30, H / 2 + Math.cos(clock * 0.09) * 20);
@@ -371,6 +438,10 @@ function drawBackground() {
   ctx.restore();
   ctx.fillStyle = `rgba(0,0,0,${0.5 - level * 0.12})`;
   ctx.fillRect(0, 0, W, H);
+  drawVignette();
+}
+
+function drawVignette() {
   const vg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.3, W / 2, H / 2, Math.max(W, H) * 0.75);
   vg.addColorStop(0, 'rgba(0,0,0,0)');
   vg.addColorStop(1, 'rgba(0,0,0,0.65)');
@@ -496,6 +567,19 @@ function drawLyrics(L, now) {
   const target = cur >= 0 ? items[cur].c : items[0].c - lay.rowH * 2;
   if (scrollY == null || Math.abs(target - scrollY) > L.h * 3) scrollY = target;
   scrollY += (target - scrollY) * 0.12;
+
+  // 밝은 배경 그림에서도 가사가 읽히도록 뒤에 은은한 그늘을 깐다
+  const shade = S.bg === 'ai' && sceneImgs.some(Boolean) ? 0.55 : 0.25;
+  ctx.save();
+  ctx.translate(L.cx, L.cy);
+  ctx.scale(1, L.h / (L.w + 160));
+  const sg = ctx.createRadialGradient(0, 0, 0, 0, 0, (L.w + 160) / 2);
+  sg.addColorStop(0, `rgba(0,0,0,${shade})`);
+  sg.addColorStop(0.6, `rgba(0,0,0,${shade * 0.6})`);
+  sg.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = sg;
+  ctx.fillRect(-(L.w + 160) / 2, -(L.w + 160) / 2, L.w + 160, L.w + 160);
+  ctx.restore();
 
   ctx.save();
   ctx.beginPath(); ctx.rect(L.cx - L.w / 2 - 60, L.cy - L.h / 2, L.w + 120, L.h); ctx.clip();
@@ -651,7 +735,9 @@ $('#lineList').addEventListener('click', (e) => {
   const d = e.target.dataset.d;
   if (d) {
     const l = S.lines[i];
-    l.t = Math.max(0, (l.t ?? audio.currentTime - S.offset) + parseFloat(d));
+    const nt = Math.max(0, (l.t ?? audio.currentTime - S.offset) + parseFloat(d));
+    if (l.e != null) l.e += nt - (l.t ?? nt);
+    l.t = nt;
     renderList(); save();
     return;
   }
@@ -668,6 +754,7 @@ $('#lineList').addEventListener('click', (e) => {
 function stamp() {
   if (syncIdx >= S.lines.length) return;
   S.lines[syncIdx].t = Math.max(0, audio.currentTime - S.offset);
+  delete S.lines[syncIdx].e;
   syncIdx++;
   if (syncIdx >= S.lines.length) stopSync();
   renderList(); save();
@@ -731,7 +818,18 @@ function applyLyricsText(text, fromFile) {
 async function handleFile(f) {
   if (!f) return;
   const name = f.name.toLowerCase();
-  if (f.type.startsWith('audio/') || /\.(mp3|wav|m4a|ogg|flac|aac)$/.test(name)) await setAudio(f, f.name);
+  if (f.type.startsWith('audio/') || /\.(mp3|wav|m4a|ogg|flac|aac)$/.test(name)) {
+    if (audioBlob) {
+      S.lines = []; S.title = ''; clearScenes();
+      $('#lyricsIn').value = ''; $('#title').value = '';
+      renderList();
+      if (window.renderScenes) renderScenes();
+    }
+    await setAudio(f, f.name);
+    save(true);
+    window.dispatchEvent(new Event('audio-added'));
+    return;
+  }
   else if (f.type.startsWith('image/')) await loadCover(f);
   else if (/\.(lrc|txt)$/.test(name) || f.type.startsWith('text/')) applyLyricsText(await f.text(), true);
   else return;
@@ -777,6 +875,7 @@ document.querySelectorAll('input[name=aspect]').forEach((r) => r.addEventListene
 $('#viz').addEventListener('change', (e) => { S.viz = e.target.value; save(); });
 $('#fontScale').addEventListener('input', (e) => { S.fontScale = parseFloat(e.target.value); save(); });
 $('#showTitle').addEventListener('change', (e) => { S.showTitle = e.target.checked; save(); });
+$('#bgMode').addEventListener('change', (e) => { S.bg = e.target.value; save(); });
 
 function toggleBroadcast(force) {
   const on = document.body.classList.toggle('broadcast', force);
@@ -913,6 +1012,7 @@ function save(now) {
       await DB.put('meta', { ...S, audioName });
       if (audioBlob !== savedAudio) { await DB.put('audio', audioBlob); savedAudio = audioBlob; }
       if (coverBlob !== savedCover) { await DB.put('cover', coverBlob); savedCover = coverBlob; }
+      if (scenesVersion !== savedScenes) { const v = scenesVersion; await DB.put('scenes', sceneBlobs.slice()); savedScenes = v; }
     } catch (err) { console.warn('저장 실패', err); }
   }, now ? 0 : 500);
 }
@@ -927,6 +1027,12 @@ async function restore() {
     if (a) { await setAudio(a, meta.audioName); savedAudio = a; }
     const c = await DB.get('cover');
     if (c) { await loadCover(c); savedCover = c; }
+    const sc = await DB.get('scenes');
+    if (sc && sc.length) {
+      sceneBlobs = sc;
+      sceneImgs = await Promise.all(sc.map(blobToImage));
+    }
+    savedScenes = scenesVersion;
   } catch (err) { console.warn('불러오기 실패', err); }
   $('#title').value = S.title;
   $('#artist').value = S.artist;
@@ -937,8 +1043,10 @@ async function restore() {
   $('#viz').value = S.viz;
   $('#fontScale').value = S.fontScale;
   $('#showTitle').checked = S.showTitle;
+  $('#bgMode').value = S.bg;
   setAspect(S.aspect);
   renderList();
+  if (window.renderScenes) renderScenes();
 }
 
 $('#resetBtn').addEventListener('click', async () => {

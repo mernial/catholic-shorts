@@ -58,3 +58,21 @@ body.broadcast.idle,body.broadcast.idle #stage{cursor:none}
   #panel{width:auto;border-left:0;border-top:1px solid var(--line)}
   body.broadcast #stageWrap{height:100vh}
 }
+
+/* 자동 만들기 */
+#autoSec{background:linear-gradient(180deg,rgba(224,180,108,.07),transparent);margin:0 -16px;padding:10px 16px}
+.row2{display:grid;grid-template-columns:90px 1fr;gap:10px}
+.row2 label{margin:4px 0}
+details.adv{border:0;padding:4px 0}
+details.adv summary{font-weight:500;font-size:13px;color:var(--muted)}
+.status{min-height:1.4em;margin:6px 0;font-size:13px}
+.status.ok{color:#9fd49a}
+.status.err{color:var(--danger)}
+body.auto-busy .status::before{content:"";display:inline-block;width:10px;height:10px;margin-right:6px;border:2px solid var(--accent);border-right-color:transparent;border-radius:50%;animation:spin .8s linear infinite;vertical-align:-1px}
+@keyframes spin{to{transform:rotate(360deg)}}
+#sceneList{display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:8px;margin:8px 0}
+.scene img,.scene .ph{width:100%;aspect-ratio:3/2;object-fit:cover;border-radius:6px;display:block;cursor:pointer;background:#11100f;border:1px solid var(--line)}
+.scene .ph{display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px}
+.scene .cap{display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--muted);margin-top:3px}
+.scene .cap button{padding:0 6px;font-size:11px;line-height:18px}
+a{color:var(--accent)}

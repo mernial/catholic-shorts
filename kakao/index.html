@@ -1,0 +1,110 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>카톡 대화 정리</title>
+<style>
+:root{--bg:#faf7f2;--card:#fff;--fg:#2b2622;--muted:#6b625a;--accent:#9a6b2f;--line:#e6ddd1;--them:#f1ece4;--mine:#fde68a;--mine-fg:#3b2f12;--warn:#b4441f;--ok:#2f7a4b}
+@media (prefers-color-scheme:dark){:root{--bg:#1c1a18;--card:#262320;--fg:#eee7de;--muted:#b3a99e;--accent:#e0b46c;--line:#3a352f;--them:#332f2a;--mine:#5a4a1c;--mine-fg:#fdf3d0;--warn:#f08a6a;--ok:#7fd1a0}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.65 -apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif}
+main{max-width:920px;margin:0 auto;padding:32px 16px 80px}
+h1{font-size:24px;margin:0 0 4px}h2{font-size:19px;margin:0 0 4px}h3{font-size:15px;margin:0}
+.muted{color:var(--muted);font-size:13px}
+a{color:var(--accent)}
+button,select,input,textarea{font:inherit;color:inherit}
+button{background:var(--accent);color:#fff;border:0;border-radius:8px;padding:8px 14px;cursor:pointer}
+button.ghost{background:transparent;color:var(--accent);border:1px solid var(--line)}
+button:disabled{opacity:.5;cursor:default}
+select,input[type=text],input[type=password],input[type=date],textarea{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:7px 10px;max-width:100%}
+.drop{border:2px dashed var(--line);border-radius:14px;padding:28px 16px;text-align:center;background:var(--card);margin:20px 0}
+.drop.over{border-color:var(--accent)}
+.drop textarea{width:100%;min-height:90px;margin-top:12px}
+.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:12px 0}
+.bar label{display:flex;gap:6px;align-items:center;font-size:14px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:16px 0}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.stat b{display:block;font-size:22px}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-top:20px;overflow-x:auto}
+.tabs button{background:none;color:var(--muted);border-radius:0;border-bottom:2px solid transparent;padding:10px 12px;white-space:nowrap}
+.tabs button.on{color:var(--fg);border-bottom-color:var(--accent);font-weight:600}
+.person{background:var(--card);border:1px solid var(--line);border-radius:14px;margin:16px 0;overflow:hidden}
+.person>summary{list-style:none;cursor:pointer;padding:14px 16px;display:flex;flex-wrap:wrap;gap:6px 14px;align-items:baseline}
+.person>summary::-webkit-details-marker{display:none}
+.person>summary h2::before{content:"▸ ";color:var(--muted)}
+.person[open]>summary h2::before{content:"▾ "}
+.chips{display:flex;flex-wrap:wrap;gap:6px;padding:0 16px 10px}
+.chip{background:var(--them);border-radius:99px;padding:1px 10px;font-size:12px}
+.ex{border-top:1px solid var(--line);padding:12px 16px}
+.ex .when{font-size:12px;color:var(--muted);margin-bottom:6px;display:flex;gap:8px;flex-wrap:wrap}
+.row{display:flex;gap:8px;margin:4px 0}
+.row.me{justify-content:flex-end}
+.bub{max-width:78%;padding:8px 12px;border-radius:14px;background:var(--them);white-space:pre-wrap;word-break:break-word}
+.row.me .bub{background:var(--mine);color:var(--mine-fg)}
+.who{font-size:12px;color:var(--muted);margin:6px 2px 0}
+.who.me{text-align:right}
+.tag{font-size:11px;border-radius:6px;padding:0 6px;border:1px solid currentColor}
+.tag.q{color:var(--accent)}.tag.late{color:var(--warn)}.tag.ok{color:var(--ok)}
+.ctx{font-size:12px;color:var(--muted);margin:2px 0 6px}
+.empty{padding:24px;text-align:center;color:var(--muted)}
+.ai{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin:16px 0}
+.ai .out{margin-top:14px}
+.ai .out h1,.ai .out h2,.ai .out h3{margin:18px 0 6px}
+.ai .out ul{padding-left:20px;margin:4px 0}
+.note{font-size:13px;color:var(--muted);background:var(--them);border-radius:10px;padding:10px 12px}
+mark{background:var(--mine);color:var(--mine-fg);border-radius:3px}
+[hidden]{display:none!important}
+@media (max-width:560px){.bub{max-width:90%}h1{font-size:21px}}
+</style></head><body><main>
+<h1>카톡 대화 정리</h1>
+<p class="muted">카카오톡 대화 내보내기 파일을 넣으면 <b>누가 무슨 이야기를 했고, 내가 어떻게 답했는지</b> 사람별로 정리합니다. 파일은 이 브라우저 안에서만 읽고, 어디에도 올리지 않습니다 (AI 요약을 직접 누를 때만 그 내용이 Anthropic API로 전송됩니다).</p>
+
+<section id="upload" class="drop">
+  <p><b>대화 파일(.txt / .csv)을 여기로 끌어다 놓거나</b></p>
+  <p><input type="file" id="file" accept=".txt,.csv,text/plain,text/csv" multiple></p>
+  <details><summary class="muted">파일 내보내는 법</summary>
+    <p class="muted" style="text-align:left">
+    <b>휴대폰</b>: 채팅방 → 오른쪽 위 ☰ → ⚙ 채팅방 설정 → <b>대화 내용 내보내기</b> → 텍스트만 보내기 → 메일/드라이브로 저장<br>
+    <b>PC(Windows)</b>: 채팅방 → ☰ → <b>대화 내용 → 대화 내보내기</b> → .txt 저장<br>
+    <b>Mac</b>: 채팅방 → ☰ → 대화 내보내기 → .csv 저장<br>
+    여러 파일을 한꺼번에 넣으면 하나로 합쳐서 분석합니다.</p>
+  </details>
+  <textarea id="paste" placeholder="또는 대화 내용을 여기에 붙여넣기"></textarea>
+  <div class="bar" style="justify-content:center"><button id="pasteGo">붙여넣은 내용 분석</button> <button class="ghost" id="demo">예시로 보기</button></div>
+</section>
+
+<section id="result" hidden>
+  <div class="bar">
+    <label>나는 <select id="me"></select></label>
+    <label>기간 <input type="date" id="from"> ~ <input type="date" id="to"></label>
+    <label><input type="text" id="q" placeholder="검색어" size="12"></label>
+    <span style="flex:1"></span>
+    <button class="ghost" id="dlMd">정리본 저장(.md)</button>
+    <button class="ghost" id="dlCsv">표로 저장(.csv)</button>
+    <button class="ghost" id="reset">다른 파일</button>
+  </div>
+  <p class="muted" id="meta"></p>
+  <div class="stats" id="stats"></div>
+  <nav class="tabs" id="tabs">
+    <button data-tab="people" class="on">사람별 정리</button>
+    <button data-tab="timeline">시간순</button>
+    <button data-tab="open">답 안 한 질문</button>
+    <button data-tab="ai">AI 요약</button>
+  </nav>
+  <div id="tab-people"></div>
+  <div id="tab-timeline" hidden></div>
+  <div id="tab-open" hidden></div>
+  <div id="tab-ai" hidden>
+    <div class="ai">
+      <p>Claude가 지금 선택된 기간·사람의 대화를 읽고 <b>사람별 핵심 이야기 · 부탁/질문 · 나의 답변 · 내가 약속한 일 · 남은 일</b>을 정리합니다.</p>
+      <div class="bar">
+        <label>API 키 <input type="password" id="key" placeholder="sk-ant-..." size="28" autocomplete="off"></label>
+        <label><input type="checkbox" id="remember"> 이 브라우저에 기억</label>
+        <button id="aiGo">AI로 요약하기</button>
+        <button class="ghost" id="aiStop" hidden>중지</button>
+      </div>
+      <p class="note">API 키는 <a href="https://platform.claude.com/settings/keys" target="_blank" rel="noopener">platform.claude.com</a>에서 발급합니다. 키와 대화 내용은 이 브라우저에서 Anthropic API로 직접 전송되며 다른 서버를 거치지 않습니다. 개인 정보가 담긴 대화라면 전송해도 되는 범위인지 먼저 확인하세요.</p>
+      <p class="muted" id="aiInfo"></p>
+      <div class="out" id="aiOut"></div>
+    </div>
+  </div>
+</section>
+<script type="module" src="app.js"></script>
+</main></body></html>

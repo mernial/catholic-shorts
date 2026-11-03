@@ -7,6 +7,9 @@ on:
       - ".github/workflows/android.yml"
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -28,3 +31,17 @@ jobs:
         with:
           name: talk-helper-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
+      # 휴대폰에서 바로 받을 수 있는 고정 주소:
+      # https://github.com/<저장소>/releases/download/talk-helper/talk-helper.apk
+      - name: 설치 파일 올리기 (Releases)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk talk-helper.apk
+          if ! gh release view talk-helper --repo "$REPO" >/dev/null 2>&1; then
+            gh release create talk-helper --repo "$REPO" --target "$GITHUB_SHA" \
+              --title "카톡 도우미 설치 파일" \
+              --notes "휴대폰에서 아래 talk-helper.apk 를 눌러 받아 설치하세요. 설치 방법은 android/README.md 를 보세요."
+          fi
+          gh release upload talk-helper talk-helper.apk --repo "$REPO" --clobber

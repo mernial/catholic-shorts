@@ -1,108 +1,126 @@
-/* 자동 만들기 — OpenAI(ChatGPT) API로
- *  1) 노래를 듣고 가사를 받아 적고 (whisper-1, 단어마다 시각 포함)
- *  2) ChatGPT가 가사를 줄로 정리하고 배경 장면을 나누고
- *  3) 장면마다 가사 내용에 맞는 그림을 그린다.
- * API 키는 이 브라우저(localStorage)에만 저장되고, 요청은 브라우저에서 OpenAI로 바로 간다. */
+/* 자동 만들기 — 무료, 이 컴퓨터 안에서만.
+ *  1) 음성인식 AI(Whisper)를 브라우저 안에서 돌려 노래를 받아 적고 시각을 얻는다.
+ *     모델은 처음 한 번 Hugging Face에서 내려받아 브라우저에 보관된다. 노래 파일은 밖으로 나가지 않는다.
+ *  2) 붙여넣은 가사가 있으면 받아쓴 글자와 맞대어(정렬) 그 가사에 시각을 붙인다.
+ *  3) 가사 낱말로 배경 장면(빛·별밤·물결…)을 고른다. 내 그림을 넣으면 그림이 장면이 된다. */
 'use strict';
 
 (() => {
-  const API = 'https://api.openai.com/v1/';
-  const KEY_LS = 'lp-openai-key';
   const OPT_LS = 'lp-auto-opts';
   const el = (id) => document.getElementById(id);
+  try { localStorage.removeItem('lp-openai-key'); } catch (e) { /* 예전 버전의 키 지우기 */ }
 
-  const DEFAULTS = {
-    auto: true,
-    images: true,
-    count: 5,
-    style: '따뜻한 빛이 스며드는 서정적인 유화풍, 경건하고 평화로운 분위기',
-    textModel: 'gpt-5-mini',
-    imageModel: 'gpt-image-1',
-    lang: 'ko',
+  const MODELS = {
+    small: 'onnx-community/whisper-small',
+    base: 'onnx-community/whisper-base',
   };
-  let opts = { ...DEFAULTS };
-  try { Object.assign(opts, JSON.parse(localStorage.getItem(OPT_LS) || '{}')); } catch (e) { /* 저장된 설정 없음 */ }
+  const DEFAULTS = { auto: true, model: 'small', lang: 'korean', scenes: 0 };
+  const opts = { ...DEFAULTS };
+  try {
+    const saved = JSON.parse(localStorage.getItem(OPT_LS) || '{}');
+    for (const k of Object.keys(DEFAULTS)) if (k in saved) opts[k] = saved[k];
+  } catch (e) { /* 저장된 설정 없음 */ }
+  if (!MODELS[opts.model]) opts.model = 'small';
   const saveOpts = () => { try { localStorage.setItem(OPT_LS, JSON.stringify(opts)); } catch (e) { /* 무시 */ } };
 
-  let busy = false;
-  const getKey = () => { try { return (localStorage.getItem(KEY_LS) || '').trim(); } catch (e) { return ''; } };
-
-  /* ---------- 설정 칸 연결 ---------- */
-  const keyIn = el('apiKey');
-  keyIn.value = getKey();
-  keyIn.addEventListener('change', () => {
-    const v = keyIn.value.trim();
-    if (v === getKey()) return;
-    try { localStorage.setItem(KEY_LS, v); } catch (e) { /* 무시 */ }
-    if (!busy) status(v ? '키를 저장했어요.' : '');
-  });
   const bind = (id, prop, kind) => {
     const input = el(id);
-    if (kind === 'check') input.checked = !!opts[prop]; else input.value = opts[prop];
+    if (kind === 'check') input.checked = !!opts[prop]; else input.value = String(opts[prop]);
     input.addEventListener('change', () => {
-      opts[prop] = kind === 'check' ? input.checked : kind === 'num' ? parseInt(input.value, 10) : input.value.trim();
+      opts[prop] = kind === 'check' ? input.checked : kind === 'num' ? parseInt(input.value, 10) : input.value;
       saveOpts();
     });
   };
   bind('autoOnAdd', 'auto', 'check');
-  bind('makeImages', 'images', 'check');
-  bind('sceneCount', 'count', 'num');
-  bind('imgStyle', 'style');
-  bind('textModel', 'textModel');
-  bind('imageModel', 'imageModel');
+  bind('asrModel', 'model');
   bind('lang', 'lang');
+  bind('sceneCount', 'scenes', 'num');
 
+  let busy = false;
   function status(msg, kind) {
     const s = el('autoStatus');
     s.textContent = msg;
     s.className = 'status' + (kind ? ' ' + kind : '');
   }
-
-  /* ---------- OpenAI 호출 ---------- */
-  function explain(statusCode, err) {
-    const msg = (err && err.message) || '';
-    const code = (err && err.code) || '';
-    if (statusCode === 401) return 'API 키가 맞지 않아요. 키를 다시 복사해서 넣어주세요.';
-    if (code === 'insufficient_quota' || /quota|billing/i.test(msg)) return 'OpenAI 계정에 충전된 금액이 없어요. platform.openai.com → Billing에서 충전해주세요.';
-    if (statusCode === 429) return '요청이 너무 많아요. 1분쯤 뒤에 다시 해주세요.';
-    if (/verif/i.test(msg)) return '그림 모델을 쓰려면 OpenAI 조직 인증이 필요해요 (platform.openai.com → Settings → Organization → Verify). 또는 고급 설정에서 그림 모델을 dall-e-3으로 바꿔보세요.';
-    if (/safety|content_policy|moderation/i.test(msg + code)) return '그림 내용이 OpenAI 정책에 걸렸어요. 그림 분위기 문구를 바꿔서 다시 해주세요.';
-    if (/model/i.test(msg) && /exist|not found|access/i.test(msg)) return `모델 이름을 쓸 수 없어요: ${msg}`;
-    return `OpenAI 오류 (${statusCode}): ${msg || '알 수 없음'}`;
+  function bar(p) {
+    const b = el('autoBar');
+    b.hidden = p == null;
+    if (p != null) b.value = p;
   }
 
-  async function call(path, body, isForm) {
-    const key = getKey();
-    if (!key) throw new Error('OpenAI API 키를 먼저 넣어주세요.');
-    let r;
-    try {
-      r = await fetch(API + path, {
-        method: 'POST',
-        headers: isForm ? { Authorization: `Bearer ${key}` } : { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-        body: isForm ? body : JSON.stringify(body),
+  /* ---------- 음성인식 일꾼 (화면이 멈추지 않게 따로 돌린다) ---------- */
+  const WORKER_SRC = `
+const VERSIONS = ['3.7.0', '3.6.3', '3.5.1'];
+let T = null, asr = null, loadedKey = '';
+async function lib() {
+  if (T) return T;
+  let last;
+  for (const v of VERSIONS) {
+    try { T = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@' + v); return T; }
+    catch (e) { last = e; }
+  }
+  throw new Error('LIB:' + (last && last.message));
+}
+self.onmessage = async (e) => {
+  const m = e.data;
+  try {
+    const { pipeline, env } = await lib();
+    env.allowLocalModels = false;
+    let device = 'wasm';
+    try { if (self.navigator.gpu && await self.navigator.gpu.requestAdapter()) device = 'webgpu'; } catch (_) {}
+    const key = m.model + '|' + device;
+    if (!asr || loadedKey !== key) {
+      self.postMessage({ type: 'loading', device });
+      const files = {};
+      asr = await pipeline('automatic-speech-recognition', m.model, {
+        device,
+        dtype: device === 'webgpu' ? { encoder_model: 'fp32', decoder_model_merged: 'q4' } : 'q8',
+        progress_callback: (p) => {
+          if (p.status === 'progress' && p.total) {
+            files[p.file] = [p.loaded, p.total];
+            let a = 0, b = 0;
+            for (const k in files) { a += files[k][0]; b += files[k][1]; }
+            self.postMessage({ type: 'download', loaded: a, total: b });
+          }
+        },
       });
-    } catch (e) {
-      throw new Error('OpenAI에 연결하지 못했어요. 인터넷 연결을 확인해주세요.');
+      loadedKey = key;
     }
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(explain(r.status, j.error));
-    return j;
+    self.postMessage({ type: 'running', device });
+    const out = await asr(m.audio, {
+      language: m.lang || null,
+      task: 'transcribe',
+      chunk_length_s: 30,
+      stride_length_s: 5,
+      return_timestamps: true,
+    });
+    self.postMessage({ type: 'done', chunks: out.chunks || [], text: out.text || '' });
+  } catch (err) {
+    self.postMessage({ type: 'error', message: String((err && err.message) || err) });
+  }
+};`;
+
+  let worker = null;
+  function getWorker() {
+    if (!worker) worker = new Worker(URL.createObjectURL(new Blob([WORKER_SRC], { type: 'text/javascript' })), { type: 'module' });
+    return worker;
   }
 
-  /* ---------- 1) 받아쓰기 ---------- */
-  const EXT = { 'audio/mpeg': 'mp3', 'audio/mp3': 'mp3', 'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/wave': 'wav', 'audio/mp4': 'm4a', 'audio/x-m4a': 'm4a', 'audio/ogg': 'ogg', 'audio/webm': 'webm', 'audio/flac': 'flac' };
-
-  async function uploadable() {
-    let blob = audioBlob, name = audioName || '';
-    if (!/\.(mp3|mp4|mpeg|mpga|m4a|wav|webm|ogg|flac)$/i.test(name)) name = `song.${EXT[blob.type] || 'mp3'}`;
-    if (blob.size > 24 * 1024 * 1024) {           // OpenAI 한도 25MB → 16kHz 모노 WAV로 줄인다
-      blob = await toWav16k(blob);
-      name = 'song.wav';
-    }
-    return { blob, name };
+  function recognize(audio16k, onMsg) {
+    return new Promise((resolve, reject) => {
+      const w = getWorker();
+      w.onmessage = (e) => {
+        const m = e.data;
+        if (m.type === 'done') resolve(m.chunks);
+        else if (m.type === 'error') reject(new Error(m.message));
+        else onMsg(m);
+      };
+      w.onerror = (e) => reject(new Error(e.message || '음성인식 일꾼 오류'));
+      w.postMessage({ model: MODELS[opts.model], lang: opts.lang === 'auto' ? null : opts.lang, audio: audio16k }, [audio16k.buffer]);
+    });
   }
 
-  async function toWav16k(blob) {
+  async function decode16k(blob) {
     const ac = new (window.AudioContext || window.webkitAudioContext)();
     const dec = await ac.decodeAudioData(await blob.arrayBuffer());
     ac.close();
@@ -110,245 +128,240 @@
     const off = new OfflineAudioContext(1, Math.ceil(dec.duration * rate), rate);
     const src = off.createBufferSource();
     src.buffer = dec; src.connect(off.destination); src.start();
-    const data = (await off.startRendering()).getChannelData(0);
-    const buf = new ArrayBuffer(44 + data.length * 2), v = new DataView(buf);
-    const str = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
-    str(0, 'RIFF'); v.setUint32(4, 36 + data.length * 2, true); str(8, 'WAVE'); str(12, 'fmt ');
-    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
-    v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
-    str(36, 'data'); v.setUint32(40, data.length * 2, true);
-    for (let i = 0; i < data.length; i++) v.setInt16(44 + i * 2, Math.max(-1, Math.min(1, data[i])) * 0x7fff, true);
-    return new Blob([buf], { type: 'audio/wav' });
+    return (await off.startRendering()).getChannelData(0).slice();
   }
 
-  async function transcribe(ref) {
-    const { blob, name } = await uploadable();
-    const fd = new FormData();
-    fd.append('file', blob, name);
-    fd.append('model', 'whisper-1');
-    fd.append('response_format', 'verbose_json');
-    fd.append('timestamp_granularities[]', 'word');
-    fd.append('timestamp_granularities[]', 'segment');
-    if (opts.lang && opts.lang !== 'auto') fd.append('language', opts.lang);
-    // 제목·가사를 힌트로 주면 더 잘 알아듣는다 (앞부분만)
-    const hint = [S.title, ref].filter(Boolean).join('\n').slice(0, 600);
-    if (hint) fd.append('prompt', hint);
-    const j = await call('audio/transcriptions', fd, true);
-    let words = (j.words || []).map((w) => ({ w: String(w.word).trim(), s: +w.start, e: +w.end })).filter((w) => w.w && isFinite(w.s));
-    if (!words.length && j.segments) {
-      // 단어 시각이 없으면 문장 시각을 글자 수로 나눠 쓴다
-      for (const seg of j.segments) {
-        const toks = String(seg.text).trim().split(/\s+/).filter(Boolean);
-        const total = toks.reduce((a, t) => a + t.length, 0) || 1;
-        let acc = 0;
-        for (const t of toks) {
-          const s = seg.start + ((seg.end - seg.start) * acc) / total;
-          acc += t.length;
-          words.push({ w: t, s, e: seg.start + ((seg.end - seg.start) * acc) / total });
-        }
-      }
+  /* ---------- 받아쓴 결과 다듬기 ---------- */
+  // 반주만 나오는 곳에서 음성인식이 지어내는 흔한 문장들
+  const JUNK = /(시청해\s*주셔서|구독|좋아요|알림\s*설정|자막|MBC|KBS|SBS|뉴스|thank(s)? for watching|subscribe|♪|\[음악\]|\(음악\))/i;
+  const NO_LETTERS = /^[^\p{L}\p{N}]*$/u;
+
+  function cleanChunks(chunks, dur) {
+    const out = [];
+    for (const c of chunks) {
+      const text = String(c.text || '').replace(/\s+/g, ' ').trim();
+      let [s, e] = c.timestamp || [];
+      if (!text || s == null || JUNK.test(text) || NO_LETTERS.test(text)) continue;
+      if (e == null || e < s) e = Math.min(dur || s + 4, s + 4);
+      // 같은 문장이 연달아 세 번 넘게 나오면 지어낸 것으로 본다
+      const same = out.slice(-3).filter((o) => o.text === text).length;
+      if (same >= 3) continue;
+      out.push({ text, s, e });
     }
-    return words;
+    return out;
   }
 
-  /* ---------- 2) ChatGPT로 줄 나누기 + 장면 나누기 ---------- */
-  const SYSTEM = `You turn a speech-recognition transcript of a SONG into karaoke lyric lines, and plan background images.
-
-INPUT: a numbered list of recognized words with start times in seconds. The song is sung over music, so there are mishearings. In instrumental parts the recognizer often hallucinates phrases such as "시청해주셔서 감사합니다", "구독과 좋아요", "자막", "MBC 뉴스", "Thank you for watching" — ignore those words (do not put them in any line).
-
-TASK 1 — lines:
-- Group consecutive words into lyric lines the way a lyrics sheet would show them (one musical phrase each, usually 2–8 seconds, at most about 22 Korean characters).
-- Each line has start_word and end_word: inclusive indices into the word list. Lines are in order and do not overlap.
-- text: the lyric line in the song's own language. Fix obvious mishearings so it reads naturally and fits the song's meaning, but never invent lines that were not sung.
-- No section labels like [Chorus].
-- If REFERENCE LYRICS are given, they are the exact correct lyrics. Use their wording and line breaks, in sung order, mapping each line to the words where it is sung. If a part (e.g. the chorus) is sung more times than it is written, output it every time it is sung. Skip reference lines that were clearly not sung.
-
-TASK 2 — scenes (exactly the requested number; none if the number is 0):
-- Split the song into scenes that follow the story and mood of the lyrics. start_line is an index into YOUR lines; the first scene starts at 0, and they increase.
-- prompt: a vivid ENGLISH prompt for an image generator that visualizes what those lyrics are about (place, light, symbols, season, mood), in the requested art style. Keep one consistent style across all scenes so they feel like one music video. Wide cinematic composition with calm space for lyrics. No text, letters, logos or captions. No close-up realistic faces.`;
-
-  const SCHEMA = {
-    type: 'object', additionalProperties: false, required: ['lines', 'scenes'],
-    properties: {
-      lines: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['start_word', 'end_word', 'text'],
-        properties: { start_word: { type: 'integer' }, end_word: { type: 'integer' }, text: { type: 'string' } } } },
-      scenes: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['start_line', 'prompt'],
-        properties: { start_line: { type: 'integer' }, prompt: { type: 'string' } } } },
-    },
-  };
-
-  async function chatJSON(system, user, schema) {
-    const j = await call('chat/completions', {
-      model: opts.textModel || DEFAULTS.textModel,
-      messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
-      response_format: { type: 'json_schema', json_schema: { name: 'result', strict: true, schema } },
-    });
-    const msg = j.choices && j.choices[0] && j.choices[0].message;
-    if (!msg || msg.refusal) throw new Error('ChatGPT가 답을 주지 않았어요. 다시 해주세요.');
-    try { return JSON.parse(msg.content); } catch (e) { throw new Error('ChatGPT 답을 읽지 못했어요. 다시 해주세요.'); }
-  }
-
-  async function arrange(words, ref, n) {
-    const list = words.map((w, i) => `${i}\t${w.s.toFixed(2)}\t${w.w}`).join('\n');
-    const user = [
-      `Song title: ${S.title || '(unknown)'}`,
-      `Art style for images: ${opts.style || DEFAULTS.style}`,
-      `Number of scenes: ${n}`,
-      ref ? `REFERENCE LYRICS:\n${ref}` : 'REFERENCE LYRICS: (none)',
-      `WORDS (index<TAB>start<TAB>word):\n${list}`,
-    ].join('\n\n');
-    const out = await chatJSON(SYSTEM, user, SCHEMA);
-    const last = words.length - 1;
-    let prevT = -1;
+  // 긴 문장은 가사 한 줄 길이로 고르게 자른다 (시각은 글자 수로 나눈다)
+  function chunksToLines(chunks) {
     const lines = [];
-    for (const l of out.lines || []) {
-      const a = Math.max(0, Math.min(last, l.start_word | 0));
-      const b = Math.max(a, Math.min(last, l.end_word | 0));
-      const text = String(l.text || '').trim();
-      if (!text) continue;
-      let t = words[a].s;
-      if (t < prevT) t = prevT + 0.05;                  // 순서가 꼬이지 않게
-      prevT = t;
-      lines.push({ text, t: +t.toFixed(2), e: +Math.max(t + 0.3, words[b].e).toFixed(2) });
-    }
-    if (!lines.length) throw new Error('가사 줄을 만들지 못했어요. 다시 해주세요.');
-    const scenes = toScenes(out.scenes, lines);
-    return { lines, scenes };
-  }
-
-  function toScenes(raw, lines) {
-    const scenes = [];
-    let prev = -1;
-    for (const sc of raw || []) {
-      const li = Math.max(0, Math.min(lines.length - 1, sc.start_line | 0));
-      if (li <= prev && scenes.length) continue;
-      prev = li;
-      scenes.push({ t: scenes.length ? lines[li].t : 0, prompt: String(sc.prompt || '').trim() });
-    }
-    return scenes.filter((s) => s.prompt);
-  }
-
-  // 가사는 이미 있고 그림 장면만 새로 나눌 때
-  async function planScenes(n) {
-    const list = S.lines.map((l, i) => `${i}\t${l.t == null ? '?' : l.t.toFixed(1)}\t${l.text}`).join('\n');
-    const user = [
-      `Song title: ${S.title || '(unknown)'}`,
-      `Art style for images: ${opts.style || DEFAULTS.style}`,
-      `Number of scenes: ${n}`,
-      `The lyric lines are already final. Return them unchanged in "lines" with start_word = end_word = their index, and plan the scenes.`,
-      `LINES (index<TAB>start<TAB>text):\n${list}`,
-    ].join('\n\n');
-    const out = await chatJSON(SYSTEM, user, SCHEMA);
-    const timed = S.lines.map((l) => ({ ...l, t: l.t ?? 0 }));
-    return toScenes(out.scenes, timed);
-  }
-
-  /* ---------- 3) 그림 그리기 ---------- */
-  async function drawImage(prompt) {
-    const model = opts.imageModel || DEFAULTS.imageModel;
-    const tall = S.aspect === '9:16';
-    const isDalle = /^dall-e/.test(model);
-    const body = { model, prompt: `${prompt}\nStyle: ${opts.style || DEFAULTS.style}. No text, no letters, no watermark.`, n: 1 };
-    if (isDalle) {
-      Object.assign(body, { size: tall ? '1024x1792' : '1792x1024', response_format: 'b64_json', quality: 'standard' });
-    } else {
-      Object.assign(body, { size: tall ? '1024x1536' : '1536x1024', quality: 'medium', output_format: 'jpeg', output_compression: 88 });
-    }
-    const j = await call('images/generations', body);
-    const b64 = j.data && j.data[0] && j.data[0].b64_json;
-    if (!b64) throw new Error('그림을 받지 못했어요.');
-    const bin = atob(b64), arr = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-    return new Blob([arr], { type: isDalle ? 'image/png' : 'image/jpeg' });
-  }
-
-  async function drawAll(onProgress) {
-    const n = S.scenes.length;
-    let done = 0, next = 0, failed = 0, lastErr = null;
-    sceneImgs.length = n; sceneBlobs.length = n;
-    const worker = async () => {
-      while (next < n) {
-        const i = next++;
-        try { await setSceneImage(i, await drawImage(S.scenes[i].prompt)); }
-        catch (e) { failed++; lastErr = e; }
-        done++;
-        onProgress(done, n);
-        renderScenes();
+    for (const c of chunks) {
+      const words = c.text.split(' ');
+      const total = c.text.replace(/ /g, '').length || 1;
+      const target = total / Math.ceil(total / 16);
+      let cur = [], curLen = 0, done = 0;
+      const flush = () => {
+        if (!cur.length) return;
+        const len = cur.join('').length;
+        const s = c.s + ((c.e - c.s) * done) / total;
+        done += len;
+        const e = c.s + ((c.e - c.s) * done) / total;
+        lines.push({ text: cur.join(' '), t: +s.toFixed(2), e: +e.toFixed(2) });
+        cur = []; curLen = 0;
+      };
+      for (const w of words) {
+        if (curLen && curLen + w.length > target * 1.15) flush();
+        cur.push(w); curLen += w.length;
       }
-    };
-    await Promise.all([worker(), worker()]);   // 두 장씩 동시에
-    if (failed === n && lastErr) throw lastErr;
-    return failed;
+      flush();
+    }
+    return lines;
+  }
+
+  /* 붙여넣은 가사 ↔ 받아쓴 글자 맞대기 (글자 단위 정렬). 한글은 초성·중성이 같으면 반쯤 맞은 것으로 친다. */
+  function jamo(ch) {
+    const c = ch.charCodeAt(0) - 0xac00;
+    if (c < 0 || c > 11171) return null;
+    return [Math.floor(c / 588), Math.floor((c % 588) / 28)];
+  }
+  function sim(a, b) {
+    if (a === b) return 2;
+    const x = jamo(a), y = jamo(b);
+    if (x && y) {
+      if (x[0] === y[0] && x[1] === y[1]) return 1;
+      if (x[1] === y[1] || x[0] === y[0]) return 0;
+    }
+    return -1;
+  }
+  const keep = (ch) => /[\p{L}\p{N}]/u.test(ch);
+
+  function alignLyrics(refLines, chunks) {
+    // 받아쓴 쪽: 글자마다 대략의 시각
+    const hyp = [];
+    for (const c of chunks) {
+      const chars = [...c.text].filter(keep);
+      chars.forEach((ch, i) => hyp.push({ ch: ch.toLowerCase(), t: c.s + ((c.e - c.s) * i) / Math.max(1, chars.length) }));
+    }
+    // 가사 쪽: 글자마다 몇 번째 줄인지
+    const ref = [];
+    refLines.forEach((l, li) => { for (const ch of l.text) if (keep(ch)) ref.push({ ch: ch.toLowerCase(), li }); });
+    const n = ref.length, m = hyp.length;
+    if (!n || !m) return null;
+    const GAP = -1;
+    const W1 = m + 1;
+    const score = new Int32Array((n + 1) * (m + 1));
+    const move = new Uint8Array((n + 1) * (m + 1)); // 0 대각, 1 가사만, 2 받아쓰기만
+    for (let i = 1; i <= n; i++) { score[i * W1] = i * GAP; move[i * W1] = 1; }
+    for (let j = 1; j <= m; j++) { score[j] = 0; move[j] = 2; }   // 앞쪽 지어낸 글자는 벌점 없이 건너뛴다
+    for (let i = 1; i <= n; i++) {
+      for (let j = 1; j <= m; j++) {
+        const d = score[(i - 1) * W1 + j - 1] + sim(ref[i - 1].ch, hyp[j - 1].ch);
+        const u = score[(i - 1) * W1 + j] + GAP;
+        const l = score[i * W1 + j - 1] + GAP;
+        if (d >= u && d >= l) { score[i * W1 + j] = d; move[i * W1 + j] = 0; }
+        else if (u >= l) { score[i * W1 + j] = u; move[i * W1 + j] = 1; }
+        else { score[i * W1 + j] = l; move[i * W1 + j] = 2; }
+      }
+    }
+    // 뒤쪽 지어낸 글자도 벌점 없이: 마지막 행에서 가장 좋은 칸부터 거슬러 간다
+    let bj = m;
+    for (let j = 0; j <= m; j++) if (score[n * W1 + j] > score[n * W1 + bj]) bj = j;
+    const firstT = new Array(refLines.length).fill(null), lastT = new Array(refLines.length).fill(null);
+    let i = n, j = bj;
+    while (i > 0 && j > 0) {
+      const mv = move[i * W1 + j];
+      if (mv === 0) {
+        const r = ref[i - 1], h = hyp[j - 1];
+        if (sim(r.ch, h.ch) > 0) {
+          firstT[r.li] = h.t;
+          if (lastT[r.li] == null) lastT[r.li] = h.t;
+        }
+        i--; j--;
+      } else if (mv === 1) i--; else j--;
+    }
+    // 못 맞춘 줄은 앞뒤 줄 사이로 채운다
+    const dur = isFinite(audio.duration) ? audio.duration : (hyp[hyp.length - 1].t + 5);
+    const out = refLines.map((l, k) => ({ text: l.text, t: firstT[k], e: lastT[k] }));
+    for (let k = 0; k < out.length; k++) {
+      if (out[k].t != null) continue;
+      const a = k - 1;                                   // 시각이 있는 앞 줄 (없으면 -1)
+      let b = k; while (b < out.length && out[b].t == null) b++;
+      const tb = b < out.length ? out[b].t : dur;
+      const ta = a >= 0 ? out[a].t : Math.max(0, tb - 3 * (b - a));
+      for (let q = a + 1; q < b; q++) out[q].t = ta + ((tb - ta) * (q - a)) / (b - a);
+      k = b;
+    }
+    let prev = -1;
+    for (const l of out) {
+      if (l.t <= prev) l.t = prev + 0.05;
+      prev = l.t;
+      l.t = +l.t.toFixed(2);
+      l.e = l.e != null && l.e > l.t ? +(l.e + 0.25).toFixed(2) : undefined;
+      if (l.e === undefined) delete l.e;
+    }
+    return out;
+  }
+
+  /* ---------- 장면 ---------- */
+  function sceneCountFor(nImages) {
+    if (nImages) return nImages;
+    if (opts.scenes > 0) return opts.scenes;
+    const dur = isFinite(audio.duration) ? audio.duration : 180;
+    return Math.max(3, Math.min(8, Math.round(dur / 35)));
+  }
+
+  function replanScenes() {
+    const imgs = sceneBlobs.filter(Boolean);
+    const scenes = planThemeScenes(S.lines, sceneCountFor(imgs.length), !imgs.length);
+    clearScenes();
+    S.scenes = scenes;
+    return imgs;
+  }
+
+  async function attachImages(blobs) {
+    for (let i = 0; i < S.scenes.length; i++) await setSceneImage(i, blobs[i] || null);
   }
 
   /* ---------- 전체 흐름 ---------- */
   function setBusy(b) {
     busy = b;
-    ['autoBtn2', 'imagesBtn'].forEach((id) => { el(id).disabled = b; });
+    el('autoBtn2').disabled = b;
     document.body.classList.toggle('auto-busy', b);
   }
 
-  async function run(mode) {
+  class Plain extends Error {}   // 사람에게 그대로 보여줄 안내
+
+  function friendly(err) {
+    if (err instanceof Plain) return err.message;
+    const msg = err.message || String(err);
+    if (/^LIB:/.test(msg) || /Failed to fetch|NetworkError|load failed/i.test(msg)) return '음성인식 AI를 내려받지 못했어요. 인터넷 연결을 확인하고 다시 해주세요. (처음 한 번은 인터넷이 필요해요)';
+    if (/memory|allocation|OOM/i.test(msg)) return '컴퓨터 메모리가 모자라요. 다른 탭을 닫거나, 고급 설정에서 정확도를 「빠름」으로 바꿔 다시 해주세요.';
+    return `자동 만들기 중 문제가 생겼어요: ${msg}`;
+  }
+
+  async function run() {
     if (busy) return;
-    if (!getKey()) { status('OpenAI API 키를 먼저 넣어주세요.', 'err'); keyIn.focus(); return; }
-    if (mode === 'all' && !audioBlob) { status('음악 파일을 먼저 넣어주세요.', 'err'); return; }
+    if (!audioBlob) { status('음악 파일을 먼저 넣어주세요.', 'err'); return; }
     setBusy(true);
-    const n = opts.images ? Math.max(1, Math.min(10, opts.count | 0)) : 0;
     const t0 = performance.now();
+    let tick = 0;
     try {
-      if (mode === 'all') {
-        const ref = $('#lyricsIn').value.trim();
-        status(ref ? '1/3 노래를 듣고 붙여넣은 가사와 맞춰보는 중… (30초~1분)' : '1/3 노래를 듣고 가사를 받아 적는 중… (30초~1분)');
-        const words = await transcribe(ref);
-        if (!words.length) throw new Error('노래에서 가사를 알아듣지 못했어요. 가사를 붙여넣고 다시 해보세요.');
-        status('2/3 ChatGPT가 가사를 줄로 나누고 장면을 정하는 중… (30초~1분)');
-        const { lines, scenes } = await arrange(words, ref, n);
-        if (syncing) stopSync();
-        S.lines = lines;
-        $('#lyricsIn').value = lines.map((l) => l.text).join('\n');
-        scrollY = null;
-        clearScenes();
-        S.scenes = scenes;
-        renderList(); renderScenes(); save();
-      } else {
-        if (!S.lines.length) { throw new Error('가사가 없어요. 먼저 「자동으로 만들기」를 하거나 가사를 넣어주세요.'); }
-        if (!n) throw new Error('「배경 그림 만들기」를 켜주세요.');
-        status('ChatGPT가 장면을 정하는 중…');
-        const scenes = await planScenes(n);
-        clearScenes();
-        S.scenes = scenes;
-        renderScenes(); save();
-      }
-      let failed = 0;
-      if (n && S.scenes.length) {
-        status(`3/3 가사에 맞는 배경 그림을 그리는 중… (0/${S.scenes.length})`);
-        failed = await drawAll((d, total) => status(`3/3 가사에 맞는 배경 그림을 그리는 중… (${d}/${total})`));
-        S.bg = 'ai'; $('#bgMode').value = 'ai';
-        save();
-      }
+      status('1/3 음악을 읽는 중…'); bar(null);
+      const pcm = await decode16k(audioBlob);
+      const dur = pcm.length / 16000;
+      const chunks = await recognize(pcm, (m) => {
+        if (m.type === 'loading') status(`2/3 음성인식 AI 준비 중… (처음 한 번은 내려받느라 몇 분 걸려요)`);
+        else if (m.type === 'download') {
+          const p = m.loaded / m.total;
+          bar(p);
+          status(`2/3 음성인식 AI 내려받는 중… ${Math.round(p * 100)}% (${(m.total / 1048576).toFixed(0)}MB, 처음 한 번만)`);
+        } else if (m.type === 'running') {
+          bar(null);
+          const how = m.device === 'webgpu' ? '그래픽카드로' : 'CPU로 (조금 느려요)';
+          const startRun = performance.now();
+          clearInterval(tick);
+          tick = setInterval(() => {
+            const s = Math.round((performance.now() - startRun) / 1000);
+            status(`2/3 노래를 듣고 가사를 받아 적는 중… ${how} ${s}초 지남 · 3분짜리 노래면 1~5분 걸려요`);
+          }, 1000);
+        }
+      });
+      clearInterval(tick);
+      const clean = cleanChunks(chunks, dur);
+      if (!clean.length) throw new Plain('노래에서 가사를 알아듣지 못했어요. 「3. 가사」에 가사를 붙여넣고 다시 해보세요.');
+
+      status('3/3 박자를 맞추고 배경 장면을 고르는 중…');
+      const refText = $('#lyricsIn').value.trim();
+      const ref = refText ? parseLyrics(refText).lines.filter((l) => l.text) : [];
+      let lines = null;
+      if (ref.length) lines = alignLyrics(ref, clean);
+      const usedRef = !!lines;
+      if (!lines) lines = chunksToLines(clean);
+
+      if (syncing) stopSync();
+      S.lines = lines;
+      $('#lyricsIn').value = lines.map((l) => l.text).join('\n');
+      scrollY = null;
+      const imgs = replanScenes();
+      await attachImages(imgs);
+      S.bg = 'scene'; $('#bgMode').value = 'scene';
+      renderList(); renderScenes(); save();
       const sec = Math.round((performance.now() - t0) / 1000);
-      status(`완료! (${sec}초) ▶ 재생을 눌러 확인해보세요.${failed ? ` 그림 ${failed}장은 실패했어요. 아래에서 「다시」를 눌러주세요.` : ''}`, 'ok');
+      status(usedRef
+        ? `완료! (${sec}초) 붙여넣은 가사에 박자를 맞췄어요. ▶ 재생해서 확인해보세요.`
+        : `완료! (${sec}초) 받아 적은 가사는 틀린 글자가 있을 수 있어요. 「3. 가사」에서 고치거나, Suno 가사를 붙여넣고 다시 누르면 더 정확해요.`, 'ok');
     } catch (e) {
       console.error(e);
-      status(e.message || String(e), 'err');
+      status(friendly(e), 'err');
     } finally {
+      clearInterval(tick);
+      bar(null);
       setBusy(false);
     }
   }
 
-  async function redrawOne(i) {
-    if (busy) return;
-    setBusy(true);
-    status(`${i + 1}번 그림을 다시 그리는 중…`);
-    try {
-      await setSceneImage(i, await drawImage(S.scenes[i].prompt));
-      renderScenes();
-      status(`${i + 1}번 그림을 바꿨어요.`, 'ok');
-    } catch (e) { status(e.message, 'err'); } finally { setBusy(false); }
-  }
-
   /* ---------- 장면 목록 ---------- */
   const thumbURLs = [];
+  const fmt = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
   window.renderScenes = function renderScenes() {
     const box = el('sceneList');
     thumbURLs.splice(0).forEach((u) => URL.revokeObjectURL(u));
@@ -356,39 +369,63 @@ TASK 2 — scenes (exactly the requested number; none if the number is 0):
     S.scenes.forEach((sc, i) => {
       const item = document.createElement('div');
       item.className = 'scene';
-      const blob = sceneBlobs[i];
       let thumb;
-      if (blob) {
+      if (sceneBlobs[i]) {
         thumb = document.createElement('img');
-        const u = URL.createObjectURL(blob); thumbURLs.push(u);
-        thumb.src = u; thumb.alt = sc.prompt;
+        const u = URL.createObjectURL(sceneBlobs[i]); thumbURLs.push(u);
+        thumb.src = u; thumb.alt = `${i + 1}번 장면 그림`;
       } else {
-        thumb = document.createElement('div');
+        thumb = document.createElement('canvas');
+        thumb.width = 240; thumb.height = 160;
+        drawTheme(thumb.getContext('2d'), sc.theme, 240, 160, 1, 3, 0.2, 0.3);
         thumb.className = 'ph';
-        thumb.textContent = busy ? '그리는 중' : '없음';
       }
-      thumb.title = sc.prompt;
+      thumb.title = '누르면 이 장면으로 이동';
       thumb.addEventListener('click', () => { audio.currentTime = Math.max(0, sc.t + S.offset); });
       const cap = document.createElement('div');
       cap.className = 'cap';
-      const tm = Math.max(0, sc.t);
-      cap.textContent = `${Math.floor(tm / 60)}:${String(Math.floor(tm % 60)).padStart(2, '0')}`;
-      const again = document.createElement('button');
-      again.type = 'button'; again.textContent = '다시';
-      again.addEventListener('click', () => redrawOne(i));
-      cap.appendChild(again);
+      const tm = document.createElement('span');
+      tm.textContent = fmt(Math.max(0, sc.t));
+      const sel = document.createElement('select');
+      sel.setAttribute('aria-label', `${i + 1}번 장면 분위기`);
+      for (const k of THEME_ORDER) { const o = document.createElement('option'); o.value = k; o.textContent = THEMES[k].name; sel.appendChild(o); }
+      sel.value = sc.theme;
+      sel.disabled = !!sceneBlobs[i];
+      sel.addEventListener('change', () => { sc.theme = sel.value; save(); renderScenes(); });
+      cap.append(tm, sel);
       item.append(thumb, cap);
       box.appendChild(item);
     });
+    el('clearImgs').hidden = !sceneBlobs.some(Boolean);
   };
 
-  el('autoBtn2').addEventListener('click', () => run('all'));
-  el('imagesBtn').addEventListener('click', () => run('images'));
+  el('autoBtn2').addEventListener('click', run);
+  el('replanBtn').addEventListener('click', async () => {
+    if (!S.lines.some((l) => l.t != null)) { status('박자가 맞춰진 가사가 있어야 장면을 나눌 수 있어요.', 'err'); return; }
+    const imgs = replanScenes();
+    await attachImages(imgs);
+    renderScenes(); save();
+    status('가사에 맞춰 장면을 다시 골랐어요.', 'ok');
+  });
+  el('myImgs').addEventListener('change', async (e) => {
+    const files = [...e.target.files].filter((f) => f.type.startsWith('image/'));
+    e.target.value = '';
+    if (!files.length) return;
+    files.sort((a, b) => a.name.localeCompare(b.name, 'ko', { numeric: true }));
+    clearScenes();
+    S.scenes = S.lines.some((l) => l.t != null)
+      ? planThemeScenes(S.lines, files.length)
+      : files.map((_, i) => ({ t: (isFinite(audio.duration) ? audio.duration : 180) * (i / files.length), theme: 'light' }));
+    await attachImages(files);
+    S.bg = 'scene'; $('#bgMode').value = 'scene';
+    renderScenes(); save();
+    status(`그림 ${files.length}장을 노래 흐름에 맞춰 배치했어요. (파일 이름 순서대로)`, 'ok');
+  });
+  el('clearImgs').addEventListener('click', async () => {
+    for (let i = 0; i < S.scenes.length; i++) await setSceneImage(i, null);
+    renderScenes(); save();
+  });
 
   // 음악 파일을 넣으면 바로 시작
-  window.addEventListener('audio-added', () => {
-    if (!opts.auto) return;
-    if (!getKey()) { status('OpenAI API 키를 넣고 「자동으로 만들기」를 누르면 가사와 그림을 만들어요.'); return; }
-    run('all');
-  });
+  window.addEventListener('audio-added', () => { if (opts.auto) run(); });
 })();

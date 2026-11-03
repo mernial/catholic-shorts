@@ -19,7 +19,7 @@
   <aside id="panel">
     <header class="ph">
       <h1>가사 플레이어</h1>
-      <p>Suno 노래를 넣으면 ChatGPT가 가사·박자·배경 그림까지 → 방송 화면 · 영상 파일</p>
+      <p>Suno 노래를 넣으면 가사·박자·배경까지 자동으로 → 방송 화면 · 영상 파일</p>
     </header>
 
     <div class="transport">
@@ -38,41 +38,41 @@
     </details>
 
     <details open id="autoSec">
-      <summary>2. ✨ 자동 만들기 (ChatGPT)</summary>
-      <label>OpenAI API 키
-        <input type="password" id="apiKey" autocomplete="off" spellcheck="false" placeholder="sk-로 시작하는 키">
-      </label>
-      <p class="muted">키는 <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">platform.openai.com/api-keys</a>에서 만듭니다. ChatGPT 월 구독과는 별도로 충전이 필요해요. 키는 이 컴퓨터의 이 브라우저에만 저장됩니다.</p>
+      <summary>2. ✨ 자동 만들기 (무료)</summary>
+      <p class="muted">음성인식 AI가 이 컴퓨터 안에서 노래를 듣고 가사를 받아 적고 박자를 맞춥니다. 키나 결제가 필요 없고, 노래 파일은 인터넷으로 나가지 않아요. 처음 한 번만 AI 파일(약 250MB)을 내려받습니다.</p>
       <label class="check"><input type="checkbox" id="autoOnAdd"> 음악을 넣으면 바로 시작</label>
-      <label class="check"><input type="checkbox" id="makeImages"> 가사에 맞는 배경 그림 만들기</label>
-      <div class="row2">
-        <label>그림 수
-          <select id="sceneCount"><option>3</option><option>4</option><option>5</option><option>6</option><option>8</option></select>
-        </label>
-        <label>그림 분위기 <input type="text" id="imgStyle" autocomplete="off"></label>
-      </div>
       <details class="adv">
         <summary>고급 설정</summary>
-        <label>노래 언어
-          <select id="lang"><option value="ko">한국어</option><option value="en">영어</option><option value="auto">자동</option></select>
+        <label>정확도
+          <select id="asrModel"><option value="small">높음 (권장 · 약 250MB)</option><option value="base">빠름 (약 80MB · 덜 정확)</option></select>
         </label>
-        <label>가사 정리 모델 <input type="text" id="textModel" list="textModels" autocomplete="off"></label>
-        <datalist id="textModels"><option value="gpt-5-mini"><option value="gpt-5"><option value="gpt-4.1-mini"><option value="gpt-4o"></datalist>
-        <label>그림 모델 <input type="text" id="imageModel" list="imageModels" autocomplete="off"></label>
-        <datalist id="imageModels"><option value="gpt-image-1"><option value="gpt-image-1-mini"><option value="dall-e-3"></datalist>
+        <label>노래 언어
+          <select id="lang"><option value="korean">한국어</option><option value="english">영어</option><option value="auto">자동</option></select>
+        </label>
+        <label>배경 장면 수
+          <select id="sceneCount"><option value="0">자동 (노래 길이에 맞춰)</option><option>3</option><option>4</option><option>5</option><option>6</option><option>8</option></select>
+        </label>
       </details>
       <div class="row">
         <button id="autoBtn2" class="primary" type="button">✨ 자동으로 만들기</button>
-        <button id="imagesBtn" type="button">그림만 다시 만들기</button>
       </div>
+      <progress id="autoBar" max="1" value="0" hidden></progress>
       <p id="autoStatus" class="status" aria-live="polite"></p>
+
+      <h3 class="sub">배경 장면</h3>
+      <p class="muted">가사에 나오는 낱말(빛, 별, 바다, 꽃, 비, 눈, 불꽃, 하늘, 십자가…)을 보고 장면마다 움직이는 배경을 고릅니다. 장면 아래에서 직접 바꿀 수도 있어요.</p>
       <div id="sceneList"></div>
-      <p class="muted">비용은 3분짜리 한 곡에 받아쓰기 약 30원, 가사 정리 몇 원, 그림 한 장에 약 90원입니다(그림 5장이면 모두 합쳐 500원 안팎, 대략적인 값).</p>
+      <div class="row">
+        <button id="replanBtn" type="button">장면 다시 고르기</button>
+        <label class="btn">내 그림 넣기<input type="file" id="myImgs" accept="image/*" multiple hidden></label>
+        <button id="clearImgs" type="button" hidden>그림 빼기</button>
+      </div>
+      <p class="muted">내 그림을 여러 장 넣으면 파일 이름 순서대로 노래 흐름에 맞춰 바뀝니다. ChatGPT 앱에서 「이 가사에 어울리는 그림 그려줘」로 만든 그림을 저장해서 넣어도 돼요.</p>
     </details>
 
     <details open>
       <summary>3. 가사 (직접 고치기)</summary>
-      <p class="muted">비워두면 ChatGPT가 노래를 듣고 받아 적습니다. Suno 가사를 붙여넣어 두면 받아 적기 대신 그 가사를 그대로 쓰고 박자만 맞춰서 더 정확해요.</p>
+      <p class="muted">비워두면 AI가 노래를 듣고 받아 적습니다. Suno 가사를 붙여넣어 두면 받아 적기 대신 그 가사를 그대로 쓰고 박자만 맞춰서 더 정확해요.</p>
       <textarea id="lyricsIn" rows="8" placeholder="(선택) Suno의 가사를 붙여넣으세요.&#10;[Verse], [Chorus] 같은 표시는 자동으로 빠집니다.&#10;LRC 형식([00:12.34] 가사)도 됩니다."></textarea>
       <div class="row">
         <button id="applyLyrics" type="button">가사 적용</button>
@@ -109,7 +109,7 @@
       </label>
       <label>배경
         <select id="bgMode">
-          <option value="ai">가사에 맞춘 그림 (있으면)</option>
+          <option value="scene">가사 분위기 장면</option>
           <option value="cover">앨범 표지 흐리게</option>
         </select>
       </label>
@@ -135,6 +135,7 @@
   </aside>
 </div>
 <audio id="audio" preload="auto"></audio>
+<script src="themes.js"></script>
 <script src="player.js"></script>
 <script src="auto.js"></script>
 </body>

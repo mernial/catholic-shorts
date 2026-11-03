@@ -20,8 +20,8 @@ const S = {
   viz: 'bars',
   fontScale: 1,
   showTitle: true,
-  bg: 'ai',             // 'ai' = 장면 그림, 'cover' = 앨범 표지 흐리게
-  scenes: [],           // [{ t, prompt }] 배경 그림이 바뀌는 시각과 그림 설명
+  bg: 'scene',          // 'scene' = 가사 분위기 장면, 'cover' = 앨범 표지 흐리게
+  scenes: [],           // [{ t, theme }] 배경 장면이 바뀌는 시각과 분위기 (내 그림이 있으면 그림이 우선)
 };
 let audioBlob = null, audioName = '';
 let coverBlob = null, coverImg = null, coverURL = null, audioURL = null;
@@ -365,7 +365,7 @@ function frame(nowMs) {
   requestAnimationFrame(frame);
 }
 
-/* ---------- 장면 그림 (가사 내용에 맞춘 배경) ---------- */
+/* ---------- 장면 배경 (가사 분위기 / 내 그림) ---------- */
 let sceneImgs = [], sceneBlobs = [], scenesVersion = 0, savedScenes = -1;
 let bgCur = -1, bgPrev = -1, bgFadeStart = 0;
 
@@ -394,9 +394,14 @@ function clearScenes() {
 function sceneAt(now) {
   let idx = -1;
   for (let i = 0; i < S.scenes.length; i++) {
-    if (sceneImgs[i] && S.scenes[i].t + S.offset <= now) idx = i;
+    if (S.scenes[i].t + S.offset <= now) idx = i;
   }
-  return idx >= 0 ? idx : sceneImgs.findIndex(Boolean);
+  return Math.max(0, idx);
+}
+
+function drawScene(i, alpha, now) {
+  if (sceneImgs[i]) drawSceneImg(i, alpha, now);
+  else drawTheme(ctx, S.scenes[i].theme, W, H, alpha, clock, bass, level);
 }
 
 function drawSceneImg(i, alpha, now) {
@@ -418,14 +423,14 @@ function drawSceneImg(i, alpha, now) {
 function drawBackground(now) {
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, W, H);
-  if (S.bg === 'ai' && sceneImgs.some(Boolean)) {
+  if (S.bg === 'scene' && S.scenes.length) {
     const idx = sceneAt(now);
     if (idx !== bgCur) { bgPrev = bgCur; bgCur = idx; bgFadeStart = clock; }
     const f = Math.min(1, (clock - bgFadeStart) / 1.8);
     const ease = f * f * (3 - 2 * f);
-    if (bgPrev >= 0 && f < 1) drawSceneImg(bgPrev, 1, now);
-    drawSceneImg(bgCur, bgPrev >= 0 ? ease : 1, now);
-    ctx.fillStyle = `rgba(0,0,0,${0.4 - level * 0.1})`;
+    if (bgPrev >= 0 && bgPrev < S.scenes.length && f < 1) drawScene(bgPrev, 1, now);
+    drawScene(bgCur, bgPrev >= 0 ? ease : 1, now);
+    ctx.fillStyle = `rgba(0,0,0,${(sceneImgs[bgCur] ? 0.4 : 0.15) - level * 0.08})`;
     ctx.fillRect(0, 0, W, H);
     drawVignette();
     return;
@@ -569,7 +574,7 @@ function drawLyrics(L, now) {
   scrollY += (target - scrollY) * 0.12;
 
   // 밝은 배경 그림에서도 가사가 읽히도록 뒤에 은은한 그늘을 깐다
-  const shade = S.bg === 'ai' && sceneImgs.some(Boolean) ? 0.55 : 0.25;
+  const shade = S.bg === 'scene' && sceneImgs.some(Boolean) ? 0.55 : 0.3;
   ctx.save();
   ctx.translate(L.cx, L.cy);
   ctx.scale(1, L.h / (L.w + 160));
@@ -1023,6 +1028,8 @@ async function restore() {
     if (!meta) return;
     Object.assign(S, meta);
     delete S.audioName;
+    if (S.bg === 'ai') S.bg = 'scene';
+    S.scenes = (S.scenes || []).map((sc) => ({ t: sc.t || 0, theme: THEMES[sc.theme] ? sc.theme : 'light' }));
     const a = await DB.get('audio');
     if (a) { await setAudio(a, meta.audioName); savedAudio = a; }
     const c = await DB.get('cover');

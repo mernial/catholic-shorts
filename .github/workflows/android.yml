@@ -25,6 +25,18 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: 단위 테스트
         run: ./gradlew --no-daemon testDebugUnitTest
+      # GitHub 비밀에 서명 키가 있으면 꺼내 씀 (없으면 매번 다른 임시 키 → 앱 안 업데이트 불가)
+      - name: 서명 키 준비
+        env:
+          SIGNING_KEY_B64: ${{ secrets.SIGNING_KEY_B64 }}
+        run: |
+          if [ -n "$SIGNING_KEY_B64" ]; then
+            echo "$SIGNING_KEY_B64" | base64 -d > "$RUNNER_TEMP/talkhelper.jks"
+            echo "SIGNING_STORE_FILE=$RUNNER_TEMP/talkhelper.jks" >> "$GITHUB_ENV"
+            echo "고정 서명 키 사용"
+          else
+            echo "::warning::SIGNING_KEY_B64 비밀이 없어 임시 키로 서명합니다. 앱 안 업데이트가 되지 않습니다."
+          fi
       - name: APK 만들기
         run: ./gradlew --no-daemon assembleDebug
       - uses: actions/upload-artifact@v4
@@ -39,9 +51,15 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           cp app/build/outputs/apk/debug/app-debug.apk talk-helper.apk
+          # 앱이 새 버전을 확인하는 파일
+          NOTES=$(git log -1 --pretty=%s)
+          SIGNED=$([ -n "$SIGNING_STORE_FILE" ] && echo true || echo false)
+          python3 -c 'import json,sys; print(json.dumps({"versionCode": int(sys.argv[1]), "versionName": "1."+sys.argv[1], "notes": sys.argv[2][:120], "signed": sys.argv[3]=="true"}, ensure_ascii=False))' \
+            "$GITHUB_RUN_NUMBER" "$NOTES" "$SIGNED" > version.json
+          cat version.json
           if ! gh release view talk-helper --repo "$REPO" >/dev/null 2>&1; then
             gh release create talk-helper --repo "$REPO" --target "$GITHUB_SHA" \
               --title "카톡 도우미 설치 파일" \
               --notes "휴대폰에서 아래 talk-helper.apk 를 눌러 받아 설치하세요. 설치 방법은 android/README.md 를 보세요."
           fi
-          gh release upload talk-helper talk-helper.apk --repo "$REPO" --clobber
+          gh release upload talk-helper talk-helper.apk version.json --repo "$REPO" --clobber

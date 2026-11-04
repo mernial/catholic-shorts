@@ -228,6 +228,18 @@ class HelperActivity : Activity() {
         resultBox.add(againRow, 6)
         card.add(resultBox, 8)
 
+        // 새 버전 알림 (누르면 앱에서 업데이트)
+        val updateLine = Ui.text(ctx, "🔔 새 버전이 있어요. 눌러서 업데이트", 14f, bold = true, color = Ui.RED).apply {
+            visibility = View.GONE
+            setPadding(0, Ui.dp(ctx, 6), 0, 0)
+            setOnClickListener {
+                startActivity(Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                finish()
+            }
+        }
+        card.add(updateLine, 4)
+        Bg.run({ Updater.check(ctx) }) { r -> if (r.getOrNull() != null && !isFinishing) updateLine.visibility = View.VISIBLE }
+
         val root = FrameLayout(ctx).apply {
             val m = Ui.dp(ctx, 10)
             setPadding(m, 0, m, 0)

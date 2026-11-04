@@ -32,6 +32,8 @@ class MainActivity : Activity() {
     private lateinit var body: LinearLayout
     private var showAdvanced = false
     private var triedAccessibility = false
+    private var update: Updater.Info? = null
+    private var updating: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -42,6 +44,32 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         render()
+        // 새 버전 확인 (조용히, 실패해도 무시)
+        Bg.run({ Updater.check(this) }) { r ->
+            r.getOrNull().let { if (it != update) { update = it; render() } }
+        }
+    }
+
+    /** 새 버전이 있으면 맨 위에 크게 알림 */
+    private fun updateBanner() {
+        val info = update ?: return
+        val box = Ui.vbox(this, 16, Ui.MINE)
+        box.add(Ui.text(this, "🔔 새 버전이 나왔어요", 22f, bold = true), 0)
+        if (info.notes.isNotBlank()) box.add(Ui.text(this, info.notes, 14f, color = Ui.MUTED), 4)
+        val btn = Ui.button(this, updating ?: "⬇️  지금 업데이트", Ui.BROWN, Ui.YELLOW, sp = 22f) {
+            if (updating != null || !Updater.ensureInstallAllowed(this)) return@button
+            updating = "받는 중… 0%"
+            render()
+            Bg.run({
+                Updater.downloadAndInstall(this) { pct -> Bg.main.post { updating = "받는 중… $pct%"; render() } }
+            }) { r ->
+                updating = null
+                r.exceptionOrNull()?.let { Toast.makeText(this, "업데이트 파일을 받지 못했어요. 인터넷을 확인해 주세요.", Toast.LENGTH_LONG).show() }
+                render()
+            }
+        }.apply { minHeight = Ui.dp(this@MainActivity, 80) }
+        box.add(btn, 10)
+        body.add(box, 12)
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -67,6 +95,7 @@ class MainActivity : Activity() {
         val p = Prefs(this)
         body.removeAllViews()
         body.add(Ui.text(this, "카톡 도우미", 30f, bold = true), 0)
+        updateBanner()
 
         val steps = listOf(accessibilityOn(), micOn(), p.apiKey.isNotBlank())
         val current = steps.indexOfFirst { !it }

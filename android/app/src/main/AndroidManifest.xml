@@ -3,6 +3,8 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- 고급 받아쓰기 파일을 와이파이에서 받는지 확인 -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <!-- 음성 인식 엔진과 카카오톡 앱을 찾기 위해 (Android 11+) -->
     <queries>

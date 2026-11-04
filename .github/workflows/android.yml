@@ -13,6 +13,9 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      # 플레이 콘솔 '서비스 계정 키'(JSON). 등록돼 있으면 내부 테스트에 자동 업로드
+      PLAY_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
     defaults:
       run:
         working-directory: android
@@ -71,3 +74,14 @@ jobs:
           gh release upload talk-helper talk-helper.apk version.json --repo "$REPO" --clobber
           # 플레이 콘솔에 올릴 파일 (업로드 키로 서명된 경우만)
           if [ -n "$SIGNING_STORE_FILE" ]; then gh release upload talk-helper talk-helper-play.aab --repo "$REPO" --clobber; fi
+      # 서비스 계정 키가 등록돼 있고 고정 서명 키로 만든 경우에만, 플레이 내부 테스트에 자동으로 올림
+      # (첫 버전은 플레이 콘솔에서 직접 올려야 함)
+      - name: 플레이 내부 테스트에 자동 업로드
+        if: ${{ env.PLAY_JSON != '' && env.SIGNING_STORE_FILE != '' }}
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: kr.yunho.talkhelper
+          releaseFiles: android/app/build/outputs/bundle/playRelease/app-play-release.aab
+          track: internal
+          status: completed

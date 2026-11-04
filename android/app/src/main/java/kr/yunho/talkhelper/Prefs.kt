@@ -3,6 +3,13 @@ package kr.yunho.talkhelper
 import android.content.Context
 import kr.yunho.talkhelper.core.Mode
 
+/** 보내는 방식 */
+enum class SendMode(val label: String, val desc: String) {
+    INSTANT("바로", "다듬자마자 바로 보냅니다"),
+    COUNTDOWN("3초 뒤", "3초 동안 보여 주고 보냅니다 (그 사이 취소 가능)"),
+    CONFIRM("확인 후", "다듬은 문장을 보고 '보내기'를 눌러야 보냅니다"),
+}
+
 class Prefs(ctx: Context) {
     private val sp = ctx.applicationContext.getSharedPreferences("settings", Context.MODE_PRIVATE)
 
@@ -21,9 +28,16 @@ class Prefs(ctx: Context) {
         set(v) = sp.edit().putBoolean("autoPressSend", v).apply()
 
     /** 버튼 한 번으로 말하기→다듬기→전송까지 자동 (끄면 보내기 전에 확인) */
-    var autoSend: Boolean
-        get() = sp.getBoolean("autoSend", true)
-        set(v) = sp.edit().putBoolean("autoSend", v).apply()
+    /** 다듬은 문장을 언제 보낼지 (예전 '자동 전송' 체크 설정을 이어받음) */
+    var sendMode: SendMode
+        get() = sp.getString("sendMode", null)?.let { runCatching { SendMode.valueOf(it) }.getOrNull() }
+            ?: if (sp.getBoolean("autoSend", true)) SendMode.COUNTDOWN else SendMode.CONFIRM
+        set(v) = sp.edit().putString("sendMode", v.name).apply()
+
+    /** 고급 받아쓰기(Whisper, 휴대폰 안에서) 사용 */
+    var whisperOn: Boolean
+        get() = sp.getBoolean("whisperOn", false)
+        set(v) = sp.edit().putBoolean("whisperOn", v).apply()
 
     /** 마지막으로 고른 말투 모드 */
     var mode: Mode

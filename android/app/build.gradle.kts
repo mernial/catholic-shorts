@@ -6,6 +6,8 @@ plugins {
 android {
     namespace = "kr.yunho.talkhelper"
     compileSdk = 36
+    // 고급 받아쓰기(Whisper) 네이티브 라이브러리 빌드용
+    ndkVersion = "27.2.12479018"
 
     defaultConfig {
         applicationId = "kr.yunho.talkhelper"
@@ -15,6 +17,18 @@ android {
         val run = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
         versionCode = run
         versionName = "1.$run"
+
+        ndk {
+            // 64비트 ARM 에만 Whisper 엔진이 들어가고, 나머지는 빈 라이브러리 (앱 설치는 됨)
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
     }
 
     // 업데이트가 기존 앱 위에 덮어 설치되려면 항상 같은 키로 서명해야 함.

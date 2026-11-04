@@ -76,11 +76,24 @@ jobs:
           if [ -n "$SIGNING_STORE_FILE" ]; then gh release upload talk-helper talk-helper-play.aab --repo "$REPO" --clobber; fi
       # 서비스 계정 키가 등록돼 있고 고정 서명 키로 만든 경우에만, 플레이 내부 테스트에 자동으로 올림
       # (첫 버전은 플레이 콘솔에서 직접 올려야 함)
+      # 휴대폰·태블릿에서 키 내용을 복사하면 줄바꿈이 섞여 JSON 이 깨질 수 있어 정리해서 파일로 씀
+      - name: 플레이 서비스 계정 키 정리
+        if: ${{ env.PLAY_JSON != '' && env.SIGNING_STORE_FILE != '' }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          raw = os.environ["PLAY_JSON"].strip()
+          data = json.loads(raw, strict=False)  # 문자열 안의 실제 줄바꿈도 허용
+          path = os.path.join(os.environ["RUNNER_TEMP"], "play-service-account.json")
+          with open(path, "w") as f:
+              json.dump(data, f)
+          print("서비스 계정:", data.get("client_email"))
+          PY
       - name: 플레이 내부 테스트에 자동 업로드
         if: ${{ env.PLAY_JSON != '' && env.SIGNING_STORE_FILE != '' }}
         uses: r0adkll/upload-google-play@v1
         with:
-          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          serviceAccountJson: ${{ runner.temp }}/play-service-account.json
           packageName: kr.yunho.talkhelper
           releaseFiles: android/app/build/outputs/bundle/playRelease/app-play-release.aab
           track: internal

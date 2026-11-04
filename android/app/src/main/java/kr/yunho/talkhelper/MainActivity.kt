@@ -309,10 +309,21 @@ class MainActivity : Activity() {
         fun check(label: String, on: Boolean) = CheckBox(this).apply {
             text = label; isChecked = on; textSize = 17f * p.textScale; setTextColor(Ui.BROWN)
         }
-        val autoSend = check("말이 끝나면 확인 없이 바로 보내기 (3초 안에 취소 가능)", p.autoSend)
         val pressSend = check("입력창에 넣은 뒤 전송 버튼까지 누르기", p.autoPressSend)
-        body.add(autoSend, 12)
-        body.add(pressSend, 6)
+        // 보내는 방식
+        body.add(Ui.text(this, "다듬은 문장 보내는 방식", 16f, bold = true), 16)
+        val sendGroup = android.widget.RadioGroup(this)
+        SendMode.values().forEachIndexed { i, m ->
+            sendGroup.addView(android.widget.RadioButton(this).apply {
+                id = 2000 + i
+                text = "${m.label} 보내기 — ${m.desc}"
+                textSize = 16f * p.textScale
+                setTextColor(Ui.BROWN)
+                isChecked = m == p.sendMode
+            })
+        }
+        body.add(sendGroup, 6)
+        body.add(pressSend, 12)
 
         whisperSection(p)
 
@@ -320,7 +331,7 @@ class MainActivity : Activity() {
             p.apiKey = key.text.toString().trim()
             p.myName = name.text.toString().trim()
             p.myRole = role.text.toString().trim()
-            p.autoSend = autoSend.isChecked
+            SendMode.values().getOrNull(sendGroup.checkedRadioButtonId - 2000)?.let { p.sendMode = it }
             p.autoPressSend = pressSend.isChecked
             Toast.makeText(this, "저장했습니다", Toast.LENGTH_SHORT).show()
             showAdvanced = false

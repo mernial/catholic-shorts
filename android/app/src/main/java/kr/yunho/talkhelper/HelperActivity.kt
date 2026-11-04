@@ -179,6 +179,15 @@ class HelperActivity : Activity() {
         card.add(modeRow, 6)
         paintModes()
 
+        // 보내는 방식 (바로 / 3초 뒤 / 확인 후)
+        val sendRow = Ui.hbox(ctx)
+        sendRow.add(Ui.text(ctx, "보내기", 14f, bold = true, color = Ui.MUTED), weight = 0.8f)
+        val sendButtons = LinkedHashMap<SendMode, Button>()
+        for (m in SendMode.values()) sendButtons[m] = sendRow.add(small(m.label, sp = 14f) { selectSendMode(m) }) as Button
+        sendModeButtons = sendButtons
+        card.add(sendRow, 6)
+        paintSendModes()
+
         // 말하기 + 들은 말
         val talkRow = Ui.hbox(ctx)
         micButton = small("", Ui.BROWN, Ui.YELLOW, sp = 16f) { toggleMic() }
@@ -256,6 +265,21 @@ class HelperActivity : Activity() {
         paintModes()
         // 이미 다듬은 문장이 있으면 새 말투로 다시 다듬음
         if (resultBox.visibility == View.VISIBLE && lastSpoken.isNotBlank()) { stopCountdown(); rewrite(lastSpoken) }
+    }
+
+    private lateinit var sendModeButtons: Map<SendMode, Button>
+
+    private fun selectSendMode(m: SendMode) {
+        prefs.sendMode = m
+        paintSendModes()
+        Toast.makeText(this, m.desc, Toast.LENGTH_SHORT).show()
+        // 3초 카운트다운 중에 '확인 후'로 바꾸면 멈춤
+        if (m == SendMode.CONFIRM) stopCountdown()
+    }
+
+    private fun paintSendModes() = sendModeButtons.forEach { (m, b) ->
+        val on = m == prefs.sendMode
+        b.background = Ui.rounded(this, if (on) Ui.YELLOW else Ui.CARD, 18, if (on) Ui.BROWN else Ui.LINE)
     }
 
     private fun paintModes() = modeButtons.forEach { (m, b) ->
@@ -474,7 +498,11 @@ class HelperActivity : Activity() {
                 resultEdit.setText(text)
                 resultEdit.clearFocus()
                 resultBox.visibility = View.VISIBLE
-                if (prefs.autoSend) startCountdown() else stopCountdown()
+                when (prefs.sendMode) {
+                    SendMode.INSTANT -> send()
+                    SendMode.COUNTDOWN -> startCountdown()
+                    SendMode.CONFIRM -> stopCountdown()
+                }
                 resultBox.post { (resultBox.parent?.parent as? ScrollView)?.smoothScrollTo(0, resultBox.bottom) }
             }.onFailure { showStatus((it as? HelperException)?.message ?: "문제가 생겼어요: ${it.message}", Ui.RED) }
         }

@@ -5,12 +5,12 @@ plugins {
 
 android {
     namespace = "kr.yunho.talkhelper"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "kr.yunho.talkhelper"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36  // 구글 플레이: 2026-08-31 부터 새 앱은 API 36 필수
         // GitHub Actions 빌드 번호를 버전으로 써서, 앱이 새 버전을 알아볼 수 있게 함
         val run = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
         versionCode = run
@@ -19,6 +19,7 @@ android {
 
     // 업데이트가 기존 앱 위에 덮어 설치되려면 항상 같은 키로 서명해야 함.
     // 키는 공개 저장소에 두지 않고, GitHub 비밀(SIGNING_KEY_B64)에서 빌드할 때만 꺼내 씀.
+    // 플레이 스토어용 AAB 도 같은 키를 '업로드 키'로 씀 (실제 앱 서명은 구글이 관리)
     val storePath = System.getenv("SIGNING_STORE_FILE")
     if (storePath != null) {
         signingConfigs {
@@ -28,12 +29,37 @@ android {
                 keyAlias = "talkhelper"
                 keyPassword = "talkhelper"
             }
+            create("upload") {
+                storeFile = file(storePath)
+                storePassword = "talkhelper"
+                keyAlias = "talkhelper"
+                keyPassword = "talkhelper"
+            }
+        }
+    }
+
+    buildFeatures {
+        buildConfig = true
+    }
+
+    // github: 직접 설치용 (앱 안 업데이트 있음)
+    // play:   플레이 스토어용 (스토어 정책상 스스로 업데이트하는 기능과 설치 권한을 뺌)
+    flavorDimensions += "dist"
+    productFlavors {
+        create("github") {
+            dimension = "dist"
+            buildConfigField("boolean", "SELF_UPDATE", "true")
+        }
+        create("play") {
+            dimension = "dist"
+            buildConfigField("boolean", "SELF_UPDATE", "false")
         }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (storePath != null) signingConfig = signingConfigs.getByName("upload")
         }
     }
     compileOptions {

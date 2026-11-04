@@ -3,8 +3,6 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    <!-- 앱 안에서 새 버전으로 업데이트 -->
-    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- 음성 인식 엔진과 카카오톡 앱을 찾기 위해 (Android 11+) -->
     <queries>
@@ -38,10 +36,6 @@
             android:launchMode="singleTask"
             android:taskAffinity="kr.yunho.talkhelper.helper"
             android:theme="@style/Helper" />
-
-        <receiver
-            android:name=".InstallResultReceiver"
-            android:exported="false" />
 
         <!-- 카톡 위 떠 있는 버튼 + 카톡 입력창에 글을 넣고 전송 -->
         <service

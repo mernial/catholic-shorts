@@ -24,7 +24,7 @@ jobs:
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
       - name: 단위 테스트
-        run: ./gradlew --no-daemon testDebugUnitTest
+        run: ./gradlew --no-daemon testGithubDebugUnitTest
       # GitHub 비밀에 서명 키가 있으면 꺼내 씀 (없으면 매번 다른 임시 키 → 앱 안 업데이트 불가)
       - name: 서명 키 준비
         env:
@@ -37,12 +37,17 @@ jobs:
           else
             echo "::warning::SIGNING_KEY_B64 비밀이 없어 임시 키로 서명합니다. 앱 안 업데이트가 되지 않습니다."
           fi
-      - name: APK 만들기
-        run: ./gradlew --no-daemon assembleDebug
+      # github: 직접 설치용 APK / play: 플레이 스토어 업로드용 AAB
+      - name: APK·AAB 만들기
+        run: ./gradlew --no-daemon assembleGithubDebug bundlePlayRelease
       - uses: actions/upload-artifact@v4
         with:
           name: talk-helper-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: android/app/build/outputs/apk/github/debug/app-github-debug.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: talk-helper-play-aab
+          path: android/app/build/outputs/bundle/playRelease/app-play-release.aab
       # 휴대폰에서 바로 받을 수 있는 고정 주소:
       # https://github.com/<저장소>/releases/download/talk-helper/talk-helper.apk
       - name: 설치 파일 올리기 (Releases)
@@ -50,7 +55,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk talk-helper.apk
+          cp app/build/outputs/apk/github/debug/app-github-debug.apk talk-helper.apk
+          cp app/build/outputs/bundle/playRelease/app-play-release.aab talk-helper-play.aab
           # 앱이 새 버전을 확인하는 파일
           NOTES=$(git log -1 --pretty=%s)
           SIGNED=$([ -n "$SIGNING_STORE_FILE" ] && echo true || echo false)
@@ -63,3 +69,5 @@ jobs:
               --notes "휴대폰에서 아래 talk-helper.apk 를 눌러 받아 설치하세요. 설치 방법은 android/README.md 를 보세요."
           fi
           gh release upload talk-helper talk-helper.apk version.json --repo "$REPO" --clobber
+          # 플레이 콘솔에 올릴 파일 (업로드 키로 서명된 경우만)
+          if [ -n "$SIGNING_STORE_FILE" ]; then gh release upload talk-helper talk-helper-play.aab --repo "$REPO" --clobber; fi

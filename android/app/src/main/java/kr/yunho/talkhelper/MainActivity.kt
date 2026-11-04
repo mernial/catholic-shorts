@@ -29,6 +29,18 @@ import kr.yunho.talkhelper.core.SetupCode
  */
 class MainActivity : Activity() {
 
+    companion object {
+        /** 접근성 API 사용에 대한 눈에 띄는 공개 (Play 정책) */
+        const val DISCLOSURE = """카톡 도우미는 '접근성' 권한을 다음 용도로만 사용합니다.
+
+• 카카오톡 화면 위에 '도우미' 버튼을 띄웁니다.
+• 도우미 버튼을 누를 때, 그 순간 카카오톡 화면에 보이는 대화 글을 읽습니다. 무엇에 대한 답장인지 알기 위해서입니다.
+• 다듬은 답장을 카카오톡 입력창에 넣고 전송 버튼을 누릅니다. 보내기 전에 화면에 보여 드리고 취소할 수 있습니다.
+
+읽은 대화 글과 말씀하신 내용은 답장을 다듬기 위해 Anthropic(Claude AI)으로 전송되며, 이 앱의 서버나 휴대폰에 저장하지 않습니다.
+카카오톡 이외의 앱 화면은 읽지 않으며, 버튼을 누르지 않았을 때는 아무것도 읽거나 보내지 않습니다."""
+    }
+
     private lateinit var body: LinearLayout
     private var showAdvanced = false
     private var triedAccessibility = false
@@ -38,7 +50,8 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         body = Ui.vbox(this, 20)
-        setContentView(ScrollView(this).apply { addView(body) })
+        // 안드로이드 15 이상은 화면 끝까지 그리므로 상태 표시줄·내비게이션 바 자리를 비워 둠
+        setContentView(ScrollView(this).apply { fitsSystemWindows = true; addView(body) })
     }
 
     override fun onResume() {
@@ -128,8 +141,11 @@ class MainActivity : Activity() {
             "아래 노란 버튼을 누르면 설정 화면이 열립니다.\n\n'카톡 도우미'를 눌러 켜고, '허용'을 누른 뒤\n뒤로 가기(◁)로 돌아오세요."
         )
         box.add(Ui.button(this, "👉  설정 열기", sp = 24f) {
-            triedAccessibility = true
-            openAccessibilitySettings()
+            // 구글 플레이 정책: 접근성 권한을 켜기 전에 무엇을 왜 쓰는지 크게 알리고 동의를 받아야 함
+            confirmDisclosure {
+                triedAccessibility = true
+                openAccessibilitySettings()
+            }
         }.apply { minHeight = Ui.dp(this@MainActivity, 88) }, 18)
 
         if (triedAccessibility) {
@@ -143,6 +159,21 @@ class MainActivity : Activity() {
             }, 10)
             body.add(help, 16)
         }
+    }
+
+    /** 접근성 권한 사용 안내와 동의 (처음 한 번) */
+    private fun confirmDisclosure(onAgree: () -> Unit) {
+        val sp = getSharedPreferences("settings", Context.MODE_PRIVATE)
+        if (sp.getBoolean("disclosureAccepted", false)) { onAgree(); return }
+        AlertDialog.Builder(this)
+            .setTitle("접근성 권한 사용 안내")
+            .setMessage(DISCLOSURE)
+            .setPositiveButton("동의하고 켜기") { _, _ ->
+                sp.edit().putBoolean("disclosureAccepted", true).apply()
+                onAgree()
+            }
+            .setNegativeButton("동의 안 함", null)
+            .show()
     }
 
     /** 가능하면 '카톡 도우미' 접근성 상세 화면으로 바로 이동 */

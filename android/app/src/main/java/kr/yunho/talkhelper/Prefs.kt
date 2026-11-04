@@ -25,6 +25,11 @@ class Prefs(ctx: Context) {
         get() = sp.getBoolean("autoSend", true)
         set(v) = sp.edit().putBoolean("autoSend", v).apply()
 
+    /** 고급 받아쓰기(Whisper, 휴대폰 안에서) 사용 */
+    var whisperOn: Boolean
+        get() = sp.getBoolean("whisperOn", false)
+        set(v) = sp.edit().putBoolean("whisperOn", v).apply()
+
     /** 마지막으로 고른 말투 모드 */
     var mode: Mode
         get() = runCatching { Mode.valueOf(sp.getString("mode", Mode.POLITE.name)!!) }.getOrDefault(Mode.POLITE)

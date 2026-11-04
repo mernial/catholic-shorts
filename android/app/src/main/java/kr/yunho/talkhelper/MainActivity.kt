@@ -119,7 +119,8 @@ class MainActivity : Activity() {
     /** 가능하면 '카톡 도우미' 접근성 상세 화면으로 바로 이동 */
     private fun openAccessibilitySettings() {
         if (Build.VERSION.SDK_INT >= 33) {
-            val detail = Intent(Settings.ACTION_ACCESSIBILITY_DETAILS_SETTINGS)
+            // 공개 SDK 에 상수가 없어 문자열로 지정 (안드로이드 13 이상에서 동작)
+            val detail = Intent("android.settings.ACCESSIBILITY_DETAILS_SETTINGS")
                 .putExtra(Intent.EXTRA_COMPONENT_NAME, ComponentName(this, KakaoAccessibilityService::class.java).flattenToString())
             if (runCatching { startActivity(detail) }.isSuccess) return
         }

@@ -217,15 +217,18 @@ class MainActivity : Activity() {
             .apply { minHeight = Ui.dp(this@MainActivity, 88) }, 18)
 
         body.add(Ui.text(this, "API 키를 직접 넣으려면 (자녀용)", 15f, bold = true, color = Ui.MUTED), 30)
-        val key = Ui.input(this, "sk-ant-...", password = true)
+        val key = Ui.input(this, "API 키 또는 설정 메시지 붙여넣기", password = true)
         body.add(key, 6)
         body.add(Ui.button(this, "저장", Ui.CARD, sp = 18f) {
-            val k = key.text.toString().trim()
+            val k = keyFrom(key.text.toString())
             if (!k.startsWith("sk-ant-")) {
                 Toast.makeText(this, "sk-ant- 로 시작하는 키를 넣어 주세요", Toast.LENGTH_LONG).show()
             } else { Prefs(this).apiKey = k; render() }
         }, 8)
     }
+
+    /** 키 칸에 API 키를 넣든, 설정 코드(안내문 포함)를 통째로 붙여 넣든 키로 바꿔 줌 */
+    private fun keyFrom(text: String): String = SetupCode.decode(text) ?: text.trim()
 
     private fun importFromClipboard(silent: Boolean) {
         val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -328,7 +331,7 @@ class MainActivity : Activity() {
         whisperSection(p)
 
         body.add(Ui.button(this, "저장", sp = 22f) {
-            p.apiKey = key.text.toString().trim()
+            p.apiKey = keyFrom(key.text.toString())
             p.myName = name.text.toString().trim()
             p.myRole = role.text.toString().trim()
             SendMode.values().getOrNull(sendGroup.checkedRadioButtonId - 2000)?.let { p.sendMode = it }

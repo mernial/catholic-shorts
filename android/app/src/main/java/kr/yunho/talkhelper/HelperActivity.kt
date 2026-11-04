@@ -105,7 +105,7 @@ class HelperActivity : Activity() {
         heard.clear(); partial = ""; lastSpoken = ""
         build()
         // 버튼을 누르자마자 바로 듣기 시작
-        if (prefs.apiKey.isBlank()) showStatus("⚠️ 아직 준비가 안 됐어요. '카톡 도우미' 앱을 열어 설정을 마쳐 주세요.", Ui.RED)
+        if (prefs.apiKey.isBlank()) showStatus("⚠️ 아직 준비가 안 됐어요. '${getString(R.string.app_name)}' 앱을 열어 설정을 마쳐 주세요.", Ui.RED)
         else toggleMic() // 마이크 권한이 없으면 여기서 허용을 물음
     }
 
@@ -409,7 +409,7 @@ class HelperActivity : Activity() {
     // ───────── 다듬기 ─────────
 
     private fun rewrite(spoken: String) {
-        val claude = ClaudeProvider.get(this) ?: return showStatus("⚠️ 아직 준비가 안 됐어요. '카톡 도우미' 앱을 열어 설정을 마쳐 주세요.", Ui.RED)
+        val claude = ClaudeProvider.get(this) ?: return showStatus("⚠️ 아직 준비가 안 됐어요. '${getString(R.string.app_name)}' 앱을 열어 설정을 마쳐 주세요.", Ui.RED)
         lastSpoken = spoken
         showStatus("${mode.emoji} '${mode.label}' 말투로 다듬는 중… 잠시만요")
         resultBox.visibility = View.GONE

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 플레이 스토어판 이름: 다른 회사 상표(카톡)를 앱 이름에 쓰지 않음 -->
+<resources>
+    <string name="app_name">말로 답장</string>
+</resources>

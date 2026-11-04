@@ -31,7 +31,7 @@ class MainActivity : Activity() {
 
     companion object {
         /** 접근성 API 사용에 대한 눈에 띄는 공개 (Play 정책) */
-        const val DISCLOSURE = """카톡 도우미는 '접근성' 권한을 다음 용도로만 사용합니다.
+        const val DISCLOSURE = """이 앱은 '접근성' 권한을 다음 용도로만 사용합니다.
 
 • 카카오톡 화면 위에 '도우미' 버튼을 띄웁니다.
 • 도우미 버튼을 누를 때, 그 순간 카카오톡 화면에 보이는 대화 글을 읽습니다. 무엇에 대한 답장인지 알기 위해서입니다.
@@ -107,7 +107,7 @@ class MainActivity : Activity() {
     private fun render() {
         val p = Prefs(this)
         body.removeAllViews()
-        body.add(Ui.text(this, "카톡 도우미", 30f, bold = true), 0)
+        body.add(Ui.text(this, getString(R.string.app_name), 30f, bold = true), 0)
         updateBanner()
 
         val steps = listOf(accessibilityOn(), micOn(), p.apiKey.isNotBlank())
@@ -138,7 +138,7 @@ class MainActivity : Activity() {
     private fun stepAccessibility() {
         val box = bigCard(
             "카톡 위 버튼 켜기",
-            "아래 노란 버튼을 누르면 설정 화면이 열립니다.\n\n'카톡 도우미'를 눌러 켜고, '허용'을 누른 뒤\n뒤로 가기(◁)로 돌아오세요."
+            "아래 노란 버튼을 누르면 설정 화면이 열립니다.\n\n'${getString(R.string.app_name)}'를 눌러 켜고, '허용'을 누른 뒤\n뒤로 가기(◁)로 돌아오세요."
         )
         box.add(Ui.button(this, "👉  설정 열기", sp = 24f) {
             // 구글 플레이 정책: 접근성 권한을 켜기 전에 무엇을 왜 쓰는지 크게 알리고 동의를 받아야 함

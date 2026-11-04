@@ -228,7 +228,7 @@ class KakaoAccessibilityService : AccessibilityService() {
                 setStroke(Ui.dp(this@KakaoAccessibilityService, 3), Ui.BROWN)
             }
             elevation = Ui.dp(this@KakaoAccessibilityService, 6).toFloat()
-            contentDescription = "카톡 도우미 열기"
+            contentDescription = getString(R.string.app_name) + " 열기"
         }
         val dm = resources.displayMetrics
         val prefs = Prefs(this)

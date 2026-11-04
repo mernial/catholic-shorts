@@ -2,32 +2,52 @@ package kr.yunho.talkhelper
 
 import android.Manifest
 import android.app.Activity
+import android.app.AlertDialog
+import android.content.ClipboardManager
 import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.view.View
 import android.widget.CheckBox
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Toast
 import kr.yunho.talkhelper.Ui.add
+import kr.yunho.talkhelper.core.SetupCode
 
-/** 처음 설정 화면: 권한 켜기 + API 키·이름 넣기 */
+/**
+ * 어르신도 따라 할 수 있게, 한 화면에 한 단계만 크게 보여 주는 설정 화면.
+ *  1단계: 카톡 위 버튼 켜기 (접근성)
+ *  2단계: 마이크 허용
+ *  3단계: 설정 코드 붙여넣기 (자녀가 카톡으로 보내 준 것) 또는 API 키 직접 입력
+ *  완료: 사용법 + 가족에게 설정 보내기 + 자세한 설정
+ */
 class MainActivity : Activity() {
 
     private lateinit var body: LinearLayout
+    private var showAdvanced = false
+    private var triedAccessibility = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        body = Ui.vbox(this, 18)
+        body = Ui.vbox(this, 20)
         setContentView(ScrollView(this).apply { addView(body) })
     }
 
     override fun onResume() {
         super.onResume()
         render()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        // 클립보드는 창이 앞에 있을 때만 읽을 수 있음. 설정 코드를 복사해 두었으면 자동으로 가져옴
+        if (hasFocus && Prefs(this).apiKey.isBlank()) importFromClipboard(silent = true)
     }
 
     private fun accessibilityOn(): Boolean {
@@ -38,82 +58,221 @@ class MainActivity : Activity() {
 
     private fun micOn() = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
 
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        render()
+    }
+
     private fun render() {
-        val ctx = this
-        val p = Prefs(ctx)
+        val p = Prefs(this)
         body.removeAllViews()
-        body.add(Ui.text(ctx, "카톡 도우미", 28f, bold = true), 0)
-        body.add(Ui.text(ctx, "카톡 대화방에 뜨는 노란 💬 버튼을 한 번 누르고 편하게 말하면, 정중한 말로 바꿔서 바로 보내 드립니다.", 17f, color = Ui.MUTED), 6)
+        body.add(Ui.text(this, "카톡 도우미", 30f, bold = true), 0)
 
-        // 1. 권한
-        val steps = Ui.vbox(ctx, 14, Ui.CARD)
-        steps.add(Ui.text(ctx, "처음 한 번만 켜 주세요", 19f, bold = true), 0)
-        val acc = accessibilityOn()
-        steps.add(Ui.button(ctx, if (acc) "✅  카톡 위 버튼 켜짐" else "1.  카톡 위 버튼 켜기 (접근성)", if (acc) Ui.THEM else Ui.YELLOW, sp = 18f) {
-            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-        })
-        if (!acc) steps.add(Ui.text(ctx, "설정 → 접근성 → 설치된 앱 → '카톡 도우미' 켜기", 15f, color = Ui.MUTED), 4)
-        val mic = micOn()
-        steps.add(Ui.button(ctx, if (mic) "✅  마이크 허용됨" else "2.  마이크 허용", if (mic) Ui.THEM else Ui.YELLOW, sp = 18f) {
-            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 1)
-        })
-        if (!acc) {
-            steps.add(Ui.text(ctx,
-                "'제한된 설정'이라며 켜지지 않으면: 아래 '앱 정보'를 열고 오른쪽 위 ⋮ → '제한된 설정 허용'을 누른 뒤 다시 켜 주세요.",
-                15f, color = Ui.MUTED))
-            steps.add(Ui.button(ctx, "앱 정보 열기", Ui.CARD, sp = 16f) {
+        val steps = listOf(accessibilityOn(), micOn(), p.apiKey.isNotBlank())
+        val current = steps.indexOfFirst { !it }
+        if (current >= 0 && !showAdvanced) {
+            body.add(Ui.text(this, "준비 ${current + 1} / 3", 18f, bold = true, color = Ui.MUTED), 8)
+            when (current) {
+                0 -> stepAccessibility()
+                1 -> stepMic()
+                2 -> stepSetupCode()
+            }
+            body.add(Ui.button(this, "자세한 설정 보기", Ui.CARD, sp = 15f) { showAdvanced = true; render() }, 40)
+            return
+        }
+        if (!showAdvanced) done() else advanced()
+    }
+
+    private fun bigCard(title: String, desc: String): LinearLayout {
+        val box = Ui.vbox(this, 18, Ui.CARD)
+        box.add(Ui.text(this, title, 26f, bold = true), 0)
+        box.add(Ui.text(this, desc, 19f), 12)
+        body.add(box, 14)
+        return box
+    }
+
+    // ───────── 1단계: 접근성 ─────────
+
+    private fun stepAccessibility() {
+        val box = bigCard(
+            "카톡 위 버튼 켜기",
+            "아래 노란 버튼을 누르면 설정 화면이 열립니다.\n\n'카톡 도우미'를 눌러 켜고, '허용'을 누른 뒤\n뒤로 가기(◁)로 돌아오세요."
+        )
+        box.add(Ui.button(this, "👉  설정 열기", sp = 24f) {
+            triedAccessibility = true
+            openAccessibilitySettings()
+        }.apply { minHeight = Ui.dp(this@MainActivity, 88) }, 18)
+
+        if (triedAccessibility) {
+            val help = Ui.vbox(this, 16, Ui.MINE)
+            help.add(Ui.text(this, "회색으로 막혀서 안 켜지나요?", 20f, bold = true), 0)
+            help.add(Ui.text(this,
+                "1. 아래 '앱 정보 열기'를 누르세요.\n2. 오른쪽 위 ⋮ (점 세 개)를 누르세요.\n3. '제한된 설정 허용'을 누르세요.\n4. 다시 위의 '설정 열기'를 누르세요.",
+                18f), 8)
+            help.add(Ui.button(this, "앱 정보 열기", Ui.CARD, sp = 20f) {
                 startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
-            })
+            }, 10)
+            body.add(help, 16)
         }
-        body.add(steps, 16)
+    }
 
-        // 2. 설정
-        body.add(Ui.text(ctx, "3. Claude API 키", 17f, bold = true), 22)
-        val key = Ui.input(ctx, "sk-ant-...", password = true).apply { setText(p.apiKey) }
+    /** 가능하면 '카톡 도우미' 접근성 상세 화면으로 바로 이동 */
+    private fun openAccessibilitySettings() {
+        if (Build.VERSION.SDK_INT >= 33) {
+            val detail = Intent(Settings.ACTION_ACCESSIBILITY_DETAILS_SETTINGS)
+                .putExtra(Intent.EXTRA_COMPONENT_NAME, ComponentName(this, KakaoAccessibilityService::class.java).flattenToString())
+            if (runCatching { startActivity(detail) }.isSuccess) return
+        }
+        startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+    }
+
+    // ───────── 2단계: 마이크 ─────────
+
+    private fun stepMic() {
+        val box = bigCard("마이크 허용", "말로 답장하려면 마이크가 필요합니다.\n\n아래 버튼을 누르고 '앱 사용 중에만 허용'을 누르세요.")
+        box.add(Ui.button(this, "👉  마이크 허용하기", sp = 24f) {
+            if (shouldShowRequestPermissionRationale(Manifest.permission.RECORD_AUDIO) || !micAskedBefore()) {
+                markMicAsked()
+                requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 1)
+            } else {
+                // 두 번 거절하면 더 이상 묻지 않으므로 앱 정보에서 직접 켜야 함
+                Toast.makeText(this, "'권한' → '마이크' → '앱 사용 중에만 허용'을 눌러 주세요", Toast.LENGTH_LONG).show()
+                startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+            }
+        }.apply { minHeight = Ui.dp(this@MainActivity, 88) }, 18)
+    }
+
+    private fun micAskedBefore() = getSharedPreferences("settings", Context.MODE_PRIVATE).getBoolean("micAsked", false)
+    private fun markMicAsked() = getSharedPreferences("settings", Context.MODE_PRIVATE).edit().putBoolean("micAsked", true).apply()
+
+    // ───────── 3단계: 설정 코드 ─────────
+
+    private fun stepSetupCode() {
+        val box = bigCard(
+            "설정 받기",
+            "자녀가 카톡으로 보내 준 '카톡 도우미 설정' 메시지를\n길게 눌러 '복사'한 뒤, 이 앱으로 돌아와\n아래 버튼을 누르세요."
+        )
+        box.add(Ui.button(this, "👉  복사한 설정 넣기", sp = 24f) { importFromClipboard(silent = false) }
+            .apply { minHeight = Ui.dp(this@MainActivity, 88) }, 18)
+
+        body.add(Ui.text(this, "API 키를 직접 넣으려면 (자녀용)", 15f, bold = true, color = Ui.MUTED), 30)
+        val key = Ui.input(this, "sk-ant-...", password = true)
         body.add(key, 6)
-        body.add(Ui.text(ctx, "platform.claude.com 에서 발급합니다. 답장을 다듬을 때만 말한 내용과 카톡 화면 글이 Anthropic 으로 전송되며, 사용한 만큼 요금이 나갑니다.", 14f, color = Ui.MUTED), 4)
+        body.add(Ui.button(this, "저장", Ui.CARD, sp = 18f) {
+            val k = key.text.toString().trim()
+            if (!k.startsWith("sk-ant-")) {
+                Toast.makeText(this, "sk-ant- 로 시작하는 키를 넣어 주세요", Toast.LENGTH_LONG).show()
+            } else { Prefs(this).apiKey = k; render() }
+        }, 8)
+    }
 
-        body.add(Ui.text(ctx, "내 이름", 17f, bold = true), 18)
-        val name = Ui.input(ctx, "예: 윤호요셉").apply { setText(p.myName) }
+    private fun importFromClipboard(silent: Boolean) {
+        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val text = runCatching { cm.primaryClip?.getItemAt(0)?.coerceToText(this)?.toString() }.getOrNull()
+        val key = SetupCode.decode(text)
+        if (key == null) {
+            if (!silent) AlertDialog.Builder(this)
+                .setMessage("복사한 설정을 찾지 못했어요.\n\n카톡에서 '카톡 도우미 설정' 메시지를 길게 눌러 '복사'를 누른 뒤 다시 해 주세요.")
+                .setPositiveButton("확인", null).show()
+            return
+        }
+        Prefs(this).apiKey = key
+        render()
+        AlertDialog.Builder(this)
+            .setMessage("설정을 받았어요! 🎉\n\n이제 받은 카톡 메시지는 지워 주세요.")
+            .setPositiveButton("확인", null).show()
+    }
+
+    // ───────── 완료 ─────────
+
+    private fun done() {
+        val box = bigCard(
+            "준비 끝! 🎉",
+            "카톡 대화방을 열면 노란 💬 버튼이 있어요.\n\n1. 💬 버튼을 누르고\n2. 하고 싶은 말을 편하게 한 뒤\n3. 끝에 \"보내 줘\"라고 말하세요.\n\n정중한 말로 바꿔서 보내 드려요."
+        )
+        box.add(Ui.button(this, "🎤  여기서 연습해 보기", Ui.CARD, sp = 20f) {
+            startActivity(Intent(this, HelperActivity::class.java))
+        }, 16)
+        packageManager.getLaunchIntentForPackage(KAKAO)?.let { launch ->
+            box.add(Ui.button(this, "💬  카톡 열기", sp = 22f) { startActivity(launch) }, 10)
+        }
+
+        body.add(Ui.button(this, "👨‍👩‍👧  가족에게 설정 보내기", Ui.CARD, sp = 18f) { shareSetup() }, 26)
+        body.add(Ui.text(this, "부모님 폰에 앱을 설치한 뒤, 이 버튼으로 카톡에 설정을 보내면 부모님은 복사만 하시면 됩니다.", 14f, color = Ui.MUTED), 4)
+        body.add(Ui.button(this, "자세한 설정", Ui.CARD, sp = 16f) { showAdvanced = true; render() }, 16)
+        sendLog()
+    }
+
+    private fun shareSetup() {
+        val key = Prefs(this).apiKey
+        if (key.isBlank()) return
+        AlertDialog.Builder(this)
+            .setMessage("설정 메시지에는 API 키가 들어 있습니다.\n가족에게만 보내고, 받은 쪽에서 설정이 끝나면 메시지를 지우도록 해 주세요.")
+            .setPositiveButton("보내기") { _, _ ->
+                val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, SetupCode.message(key))
+                packageManager.getLaunchIntentForPackage(KAKAO)?.let { send.setPackage(KAKAO) }
+                runCatching { startActivity(send) }.onFailure { startActivity(Intent.createChooser(send.setPackage(null), "설정 보내기")) }
+            }
+            .setNegativeButton("취소", null).show()
+    }
+
+    // ───────── 자세한 설정 ─────────
+
+    private fun advanced() {
+        val p = Prefs(this)
+        body.add(Ui.text(this, "자세한 설정", 22f, bold = true), 10)
+
+        body.add(Ui.text(this, "현재 상태", 16f, bold = true, color = Ui.MUTED), 14)
+        body.add(Ui.text(this,
+            "${if (accessibilityOn()) "✅" else "❌"} 카톡 위 버튼   ${if (micOn()) "✅" else "❌"} 마이크   ${if (p.apiKey.isNotBlank()) "✅" else "❌"} API 키",
+            16f), 4)
+        val row = Ui.hbox(this)
+        row.add(Ui.button(this, "접근성 설정", Ui.CARD, sp = 15f) { openAccessibilitySettings() })
+        row.add(Ui.button(this, "앱 정보", Ui.CARD, sp = 15f) {
+            startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+        })
+        body.add(row, 8)
+
+        body.add(Ui.text(this, "Claude API 키", 16f, bold = true), 18)
+        val key = Ui.input(this, "sk-ant-...", password = true).apply { setText(p.apiKey) }
+        body.add(key, 6)
+        body.add(Ui.text(this, "답장을 다듬을 때만 말한 내용과 카톡 화면 글이 Anthropic 으로 전송되며, 사용한 만큼 요금이 나갑니다.", 13f, color = Ui.MUTED), 4)
+
+        body.add(Ui.text(this, "내 이름 (선택)", 16f, bold = true), 14)
+        val name = Ui.input(this, "예: 윤호요셉").apply { setText(p.myName) }
         body.add(name, 6)
-        body.add(Ui.text(ctx, "나는 어떤 사람인가요? (말투에 반영)", 17f, bold = true), 14)
-        val role = Ui.input(ctx, "예: 본당 주임신부").apply { setText(p.myRole) }
+        body.add(Ui.text(this, "나는 어떤 사람인가요? (선택, 말투에 반영)", 16f, bold = true), 12)
+        val role = Ui.input(this, "예: 본당 주임신부 / 70대 어머니").apply { setText(p.myRole) }
         body.add(role, 6)
-        val pressSend = CheckBox(ctx).apply {
-            text = "입력창에 넣은 뒤 전송 버튼까지 누르기"
-            isChecked = p.autoPressSend
-            textSize = 18f * p.textScale
-            setTextColor(Ui.BROWN)
-        }
-        body.add(pressSend, 12)
-        val autoSend = CheckBox(ctx).apply {
-            text = "말이 끝나면 확인 없이 바로 보내기 (3초 안에 취소 가능)"
-            isChecked = p.autoSend
-            textSize = 18f * p.textScale
-            setTextColor(Ui.BROWN)
-        }
-        body.add(autoSend, 8)
 
-        body.add(Ui.button(ctx, "저장", sp = 22f) {
+        fun check(label: String, on: Boolean) = CheckBox(this).apply {
+            text = label; isChecked = on; textSize = 17f * p.textScale; setTextColor(Ui.BROWN)
+        }
+        val autoSend = check("말이 끝나면 확인 없이 바로 보내기 (3초 안에 취소 가능)", p.autoSend)
+        val pressSend = check("입력창에 넣은 뒤 전송 버튼까지 누르기", p.autoPressSend)
+        body.add(autoSend, 12)
+        body.add(pressSend, 6)
+
+        body.add(Ui.button(this, "저장", sp = 22f) {
             p.apiKey = key.text.toString().trim()
             p.myName = name.text.toString().trim()
             p.myRole = role.text.toString().trim()
-            p.autoPressSend = pressSend.isChecked
             p.autoSend = autoSend.isChecked
-            Toast.makeText(ctx, "저장했습니다", Toast.LENGTH_SHORT).show()
+            p.autoPressSend = pressSend.isChecked
+            Toast.makeText(this, "저장했습니다", Toast.LENGTH_SHORT).show()
+            showAdvanced = false
             render()
-        }, 20)
+        }, 18)
+        body.add(Ui.button(this, "돌아가기", Ui.CARD, sp = 16f) { showAdvanced = false; render() }, 8)
+        sendLog()
+    }
 
-        body.add(Ui.button(ctx, "🎤  여기서 시험해 보기", Ui.CARD, sp = 18f) {
-            startActivity(Intent(ctx, HelperActivity::class.java))
-        }, 12)
-        body.add(Ui.text(ctx, "시험 화면에서 '보내기'를 누르면 카톡이 열려 있지 않아 글이 복사만 됩니다.", 14f, color = Ui.MUTED), 4)
-
-        // 문제 진단: 자동 전송이 안 될 때 이 부분을 캡처해서 보내 주세요
-        val log = p.lastSendLog
-        if (log.isNotBlank() && log != "성공") {
-            body.add(Ui.text(ctx, "마지막 보내기 기록 (안 될 때 이 화면을 캡처해 주세요)", 15f, bold = true, color = Ui.MUTED), 24)
-            body.add(Ui.text(ctx, log, 12f, color = Ui.MUTED).apply { setTextIsSelectable(true) }, 4)
-        }
+    /** 자동 전송이 안 될 때 원인을 볼 수 있는 기록 */
+    private fun sendLog() {
+        val log = Prefs(this).lastSendLog
+        if (log.isBlank() || log == "성공") return
+        body.add(Ui.text(this, "마지막 보내기 기록 (안 될 때 이 화면을 캡처해 주세요)", 14f, bold = true, color = Ui.MUTED), 28)
+        body.add(Ui.text(this, log, 11f, color = Ui.MUTED).apply { setTextIsSelectable(true) }, 4)
+        body.add(View(this), 30)
     }
 }

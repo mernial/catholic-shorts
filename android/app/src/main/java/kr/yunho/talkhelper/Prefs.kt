@@ -12,7 +12,7 @@ class Prefs(ctx: Context) {
         get() = sp.getString("myName", "") ?: ""
         set(v) = sp.edit().putString("myName", v).apply()
     var myRole: String
-        get() = sp.getString("myRole", "본당 주임신부") ?: ""
+        get() = sp.getString("myRole", "") ?: ""
         set(v) = sp.edit().putString("myRole", v).apply()
     /** 카톡 입력창에 넣은 뒤 전송 버튼까지 누르기 */
     var autoPressSend: Boolean

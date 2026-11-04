@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">카톡 도우미</string>
+    <string name="accessibility_desc">카카오톡 화면 위에 \'도우미\' 버튼을 띄우고, 말로 한 답장을 다듬어 카카오톡 입력창에 넣어 보냅니다. 카카오톡 화면의 글은 요약과 답장 다듬기에만 쓰며, 카카오톡 이외의 앱은 읽지 않습니다.</string>
+</resources>

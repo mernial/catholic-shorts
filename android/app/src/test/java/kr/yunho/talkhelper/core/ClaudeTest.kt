@@ -71,7 +71,12 @@ class ClaudeTest {
             assertTrue(body.contains("\"effort\":\"low\""))
             assertTrue(body.contains("야 이거 토요일에 하자고 해"))
             assertTrue(body.contains("청년 모임 언제 할까요?"))
-            assertTrue(body.contains("본당 주임신부"))
+            assertTrue(body.contains("<보내는사람>윤호요셉, 본당 주임신부</보내는사람>"))
+            // 시스템 지침에만 캐시 표시, 사람마다 다른 정보는 시스템 지침에 없어야 함
+            assertTrue(body.contains("\"cache_control\":{\"type\":\"ephemeral\"}"))
+            assertTrue(Prompts.system(Mode.BUSINESS) == Prompts.system(Mode.BUSINESS))
+            assertTrue(!Prompts.system(Mode.BUSINESS).contains("윤호요셉"))
+            assertEquals(c.lastUsage?.input, 10L)
             assertTrue(body.contains("업무 연락"))
             assertTrue(body.contains("해당 건은 토요일에 진행하겠습니다."))
         }

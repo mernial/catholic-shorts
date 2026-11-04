@@ -44,6 +44,11 @@ class Prefs(ctx: Context) {
         get() = runCatching { Mode.valueOf(sp.getString("mode", Mode.POLITE.name)!!) }.getOrDefault(Mode.POLITE)
         set(v) = sp.edit().putString("mode", v.name).apply()
 
+    /** 마지막 다듬기 요청의 토큰 사용량 (캐시 확인용) */
+    var lastUsage: String
+        get() = sp.getString("lastUsage", "") ?: ""
+        set(v) = sp.edit().putString("lastUsage", v).apply()
+
     /** 마지막 카톡 보내기 시도 기록 (문제 진단용) */
     var lastSendLog: String
         get() = sp.getString("lastSendLog", "") ?: ""

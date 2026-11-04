@@ -491,7 +491,10 @@ class HelperActivity : Activity() {
         showStatus("${mode.emoji} '${mode.label}' 말투로 다듬는 중… 잠시만요")
         resultBox.visibility = View.GONE
         val m = mode
-        Bg.run({ claude.rewrite(m, spoken, screenText, prefs.myName, prefs.myRole) }) { r ->
+        Bg.run({
+            claude.rewrite(m, spoken, screenText, prefs.myName, prefs.myRole)
+                .also { claude.lastUsage?.let { u -> prefs.lastUsage = u.describe() } }
+        }) { r ->
             if (isFinishing) return@run
             r.onSuccess { text ->
                 showStatus(null)

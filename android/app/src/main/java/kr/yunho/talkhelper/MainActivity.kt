@@ -341,6 +341,10 @@ class MainActivity : Activity() {
             render()
         }, 18)
         body.add(Ui.button(this, "돌아가기", Ui.CARD, sp = 16f) { showAdvanced = false; render() }, 8)
+        p.lastUsage.takeIf { it.isNotBlank() }?.let {
+            body.add(Ui.text(this, "마지막 다듬기 사용량", 14f, bold = true, color = Ui.MUTED), 24)
+            body.add(Ui.text(this, it, 13f, color = Ui.MUTED), 4)
+        }
         sendLog()
     }
 

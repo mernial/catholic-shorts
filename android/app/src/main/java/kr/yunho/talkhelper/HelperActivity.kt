@@ -180,12 +180,12 @@ class HelperActivity : Activity() {
         paintModes()
 
         // 보내는 방식 (바로 / 3초 뒤 / 확인 후)
-        val sendRow = Ui.hbox(ctx)
-        sendRow.add(Ui.text(ctx, "보내기", 14f, bold = true, color = Ui.MUTED), weight = 0.8f)
+        val sendModeRow = Ui.hbox(ctx)
+        sendModeRow.add(Ui.text(ctx, "보내기", 14f, bold = true, color = Ui.MUTED), weight = 0.8f)
         val sendButtons = LinkedHashMap<SendMode, Button>()
-        for (m in SendMode.values()) sendButtons[m] = sendRow.add(small(m.label, sp = 14f) { selectSendMode(m) }) as Button
+        for (m in SendMode.values()) sendButtons[m] = sendModeRow.add(small(m.label, sp = 14f) { selectSendMode(m) }) as Button
         sendModeButtons = sendButtons
-        card.add(sendRow, 6)
+        card.add(sendModeRow, 6)
         paintSendModes()
 
         // 말하기 + 들은 말

@@ -1,11 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- 카카오톡 위에 반투명하게 뜨는 도우미 화면 -->
+    <!-- 카카오톡 위에 작게 떠 있는 도우미 카드 (뒤 화면을 어둡게 하지 않음) -->
     <style name="Helper" parent="@android:style/Theme.DeviceDefault.Light.NoActionBar">
         <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowIsFloating">true</item>
         <item name="android:windowBackground">@android:color/transparent</item>
-        <item name="android:backgroundDimEnabled">true</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:windowCloseOnTouchOutside">false</item>
         <item name="android:windowSoftInputMode">adjustResize</item>
+        <item name="android:windowNoTitle">true</item>
     </style>
     <style name="Main" parent="@android:style/Theme.DeviceDefault.Light.NoActionBar">
         <item name="android:windowBackground">@color/bg</item>

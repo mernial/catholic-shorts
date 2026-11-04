@@ -37,6 +37,11 @@ class Prefs(ctx: Context) {
 
     val textScale: Float get() = 1.3f
 
+    /** 도우미 카드의 화면 위치 (위에서부터) */
+    var panelY: Int
+        get() = sp.getInt("panelY", -1)
+        set(v) = sp.edit().putInt("panelY", v).apply()
+
     var bubbleX: Int
         get() = sp.getInt("bubbleX", -1)
         set(v) = sp.edit().putInt("bubbleX", v).apply()

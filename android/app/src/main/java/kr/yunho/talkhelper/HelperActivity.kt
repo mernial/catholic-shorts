@@ -12,6 +12,8 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.view.Gravity
+import android.view.MotionEvent
+import android.view.WindowManager
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
@@ -53,6 +55,7 @@ class HelperActivity : Activity() {
     private lateinit var micButton: Button
     private lateinit var heardView: TextView
     private lateinit var typedInput: EditText
+    private lateinit var typedRow: LinearLayout
     private lateinit var status: TextView
     private lateinit var resultBox: LinearLayout
     private lateinit var resultEdit: EditText
@@ -67,7 +70,7 @@ class HelperActivity : Activity() {
         override fun run() {
             if (countdown <= 0) { send(); return }
             resultTitle.text = "${countdown}초 뒤에 보냅니다…"
-            sendButton.text = "📤  지금 보내기"
+            sendButton.text = "📤 지금 보내기"
             countdown--
             Bg.main.postDelayed(this, 1000)
         }
@@ -110,78 +113,129 @@ class HelperActivity : Activity() {
 
     // ───────── 화면 ─────────
 
+    /** 작은 버튼 (떠 있는 카드용) */
+    private fun small(text: String, bg: Int = Ui.CARD, fg: Int = Ui.BROWN, sp: Float = 15f, onClick: (View) -> Unit): Button =
+        Ui.button(this, text, bg, fg, sp, onClick).apply {
+            minHeight = Ui.dp(this@HelperActivity, 44); minimumHeight = minHeight
+            minWidth = 0; minimumWidth = 0
+            val p = Ui.dp(this@HelperActivity, 6)
+            setPadding(p * 2, p, p * 2, p)
+            background = Ui.rounded(this@HelperActivity, bg, 14, if (bg == Ui.CARD) Ui.LINE else null)
+        }
+
+    /** 카톡 위에 떠 있는 작은 카드 창. 뒤의 카톡 대화가 보이고 스크롤도 됨 */
+    private fun setupWindow() {
+        window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        val lp = window.attributes
+        lp.gravity = Gravity.TOP
+        lp.y = prefs.panelY.takeIf { it >= 0 } ?: Ui.dp(this, 70)
+        window.attributes = lp
+        window.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+        // 카드 바깥을 누르면 뒤의 카톡이 반응 (대화를 보며 스크롤 가능)
+        window.addFlags(WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL)
+    }
+
+    /** 손잡이를 끌어 카드 위치를 옮김 */
+    @android.annotation.SuppressLint("ClickableViewAccessibility")
+    private fun makeDraggable(handle: View) {
+        var downY = 0f; var startY = 0
+        handle.setOnTouchListener { _, e ->
+            val lp = window.attributes
+            when (e.action) {
+                MotionEvent.ACTION_DOWN -> { downY = e.rawY; startY = lp.y }
+                MotionEvent.ACTION_MOVE -> {
+                    val max = resources.displayMetrics.heightPixels - window.decorView.height
+                    lp.y = (startY + (e.rawY - downY)).toInt().coerceIn(0, maxOf(0, max))
+                    window.attributes = lp
+                }
+                MotionEvent.ACTION_UP -> prefs.panelY = lp.y
+            }
+            true
+        }
+    }
+
     private fun build() {
         val ctx = this
-        val panel = Ui.vbox(ctx, 18).apply { background = Ui.rounded(ctx, Ui.BG, 24) }
+        val card = Ui.vbox(ctx, 12).apply {
+            background = Ui.rounded(ctx, Ui.BG, 22, Ui.BROWN)
+            elevation = Ui.dp(ctx, 12).toFloat()
+        }
 
+        // 손잡이 + 닫기
         val head = Ui.hbox(ctx)
-        head.add(Ui.text(ctx, "답장 만들기", 22f, bold = true), weight = 3f)
-        head.add(Ui.button(ctx, "닫기", Ui.CARD, sp = 16f) { finish() }, weight = 1f)
-        panel.add(head, 0)
+        val handle = Ui.text(ctx, "⠿  답장 도우미  (끌어서 옮기기)", 14f, bold = true, color = Ui.MUTED).apply {
+            setPadding(0, Ui.dp(ctx, 8), 0, Ui.dp(ctx, 8))
+        }
+        head.add(handle, weight = 4f)
+        head.add(small("✕", sp = 16f) { finish() }, weight = 1f)
+        makeDraggable(handle)
+        card.add(head, 0)
 
         // 말투 모드 (마지막에 고른 것을 기억)
         val modeRow = Ui.hbox(ctx)
         val buttons = LinkedHashMap<Mode, Button>()
-        for (m in Mode.values()) {
-            buttons[m] = modeRow.add(Ui.button(ctx, "${m.emoji}\n${m.label}", Ui.CARD, sp = 16f) { selectMode(m) }
-                .apply { minHeight = Ui.dp(ctx, 76) }) as Button
-        }
+        for (m in Mode.values()) buttons[m] = modeRow.add(small("${m.emoji} ${m.label}", sp = 14f) { selectMode(m) }) as Button
         modeButtons = buttons
-        panel.add(modeRow, 12)
+        card.add(modeRow, 6)
         paintModes()
-        panel.add(Ui.text(ctx, "편하게 말씀하시고 끝에 \"보내 줘\" 또는 \"끝\"이라고 하세요.\n예) \"이거 토요일에 하자고 보내 줘\"", 16f, color = Ui.MUTED), 6)
 
-        micButton = Ui.button(ctx, "", sp = 24f) { toggleMic() }.apply { minHeight = Ui.dp(ctx, 96) }
-        panel.add(micButton, 14)
-        resetMic()
-        heardView = Ui.text(ctx, "", 20f).apply { visibility = View.GONE }
-        panel.add(heardView)
-
-        typedInput = Ui.input(ctx, "말 대신 글로 쓰기 (대충 써도 됩니다)", multiline = true).apply { visibility = View.GONE }
-        panel.add(typedInput)
-        val typeRow = Ui.hbox(ctx)
-        typeRow.add(Ui.button(ctx, "⌨️ 글로 쓰기", Ui.CARD, sp = 16f) {
+        // 말하기 + 들은 말
+        val talkRow = Ui.hbox(ctx)
+        micButton = small("", Ui.BROWN, Ui.YELLOW, sp = 16f) { toggleMic() }
+        talkRow.add(micButton, weight = 2f)
+        talkRow.add(small("⌨️", sp = 15f) {
             stopRecognizer(); resetMic()
-            typedInput.visibility = View.VISIBLE
+            typedRow.visibility = View.VISIBLE
             typedInput.requestFocus()
-        })
-        typeRow.add(Ui.button(ctx, "✨ 다듬기", Ui.CARD, sp = 16f) {
+        }, weight = 0.7f)
+        card.add(talkRow, 8)
+        resetMic()
+        heardView = Ui.text(ctx, "끝에 \"보내 줘\"라고 하면 바로 보냅니다", 15f, color = Ui.MUTED).apply { maxLines = 3 }
+        card.add(heardView, 6)
+
+        typedRow = Ui.hbox(ctx).apply { visibility = View.GONE }
+        typedInput = Ui.input(ctx, "대충 써도 됩니다", multiline = true).apply { textSize = 16f; maxLines = 3 }
+        typedRow.add(typedInput, weight = 3f)
+        typedRow.add(small("✨ 다듬기", sp = 14f) {
             val t = typedInput.text.toString().trim()
-            if (t.isNotEmpty()) rewrite(t) else typedInput.visibility = View.VISIBLE
-        })
-        panel.add(typeRow, 8)
+            if (t.isNotEmpty()) rewrite(t)
+        }, weight = 1.3f)
+        card.add(typedRow, 6)
 
-        status = Ui.text(ctx, "", 18f, color = Ui.MUTED).apply { visibility = View.GONE }
-        panel.add(status)
+        status = Ui.text(ctx, "", 15f, color = Ui.MUTED).apply { visibility = View.GONE }
+        card.add(status, 4)
 
-        resultBox = Ui.vbox(ctx, 12, Ui.MINE).apply { visibility = View.GONE }
-        resultTitle = Ui.text(ctx, "", 17f, bold = true, color = Ui.BROWN)
+        // 다듬은 결과
+        resultBox = Ui.vbox(ctx, 10, Ui.MINE).apply { visibility = View.GONE }
+        resultTitle = Ui.text(ctx, "", 14f, bold = true, color = Ui.BROWN)
         resultBox.add(resultTitle, 0)
         resultEdit = Ui.input(ctx, "", multiline = true).apply {
-            textSize = 22f * prefs.textScale
+            textSize = 18f * prefs.textScale
+            maxLines = 4
             // 고치려고 누르면 자동 전송을 멈춤
-            setOnTouchListener { _, e -> if (e.action == android.view.MotionEvent.ACTION_DOWN) stopCountdown(); false }
+            setOnTouchListener { _, e -> if (e.action == MotionEvent.ACTION_DOWN) stopCountdown(); false }
         }
-        resultBox.add(resultEdit, 6)
-        sendButton = Ui.button(ctx, "📤  보내기", Ui.BROWN, Ui.YELLOW, sp = 24f) { send() }.apply { minHeight = Ui.dp(ctx, 84) }
-        resultBox.add(sendButton, 10)
-        cancelButton = Ui.button(ctx, "✋  취소 (보내지 않기)", Ui.CARD, Ui.RED, sp = 20f) { stopCountdown() }.apply { minHeight = Ui.dp(ctx, 72) }
-        resultBox.add(cancelButton, 8)
+        resultBox.add(resultEdit, 4)
+        val sendRow = Ui.hbox(ctx)
+        cancelButton = small("✋ 취소", Ui.CARD, Ui.RED, sp = 17f) { stopCountdown() }
+        sendRow.add(cancelButton, weight = 1f)
+        sendButton = small("📤 보내기", Ui.BROWN, Ui.YELLOW, sp = 17f) { send() }
+        sendRow.add(sendButton, weight = 1.4f)
+        resultBox.add(sendRow, 8)
         againRow = Ui.hbox(ctx)
-        againRow.add(Ui.button(ctx, "🎤 다시 말하기", Ui.CARD, sp = 16f) { stopCountdown(); resultBox.visibility = View.GONE; toggleMic() })
-        againRow.add(Ui.button(ctx, "🔄 다시 다듬기", Ui.CARD, sp = 16f) { stopCountdown(); if (lastSpoken.isNotBlank()) rewrite(lastSpoken) })
-        resultBox.add(againRow, 8)
-        panel.add(resultBox, 14)
+        againRow.add(small("🎤 다시 말하기", sp = 14f) { stopCountdown(); resultBox.visibility = View.GONE; toggleMic() })
+        againRow.add(small("🔄 다시 다듬기", sp = 14f) { stopCountdown(); if (lastSpoken.isNotBlank()) rewrite(lastSpoken) })
+        resultBox.add(againRow, 6)
+        card.add(resultBox, 8)
 
-        val scroll = ScrollView(ctx).apply { addView(panel) }
         val root = FrameLayout(ctx).apply {
-            setOnClickListener { finish() } // 바깥을 누르면 닫힘
-            val lp = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM)
-            lp.topMargin = Ui.dp(ctx, 40)
-            addView(scroll, lp)
+            val m = Ui.dp(ctx, 10)
+            setPadding(m, 0, m, 0)
+            addView(ScrollView(ctx).apply { addView(card) },
+                FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
-        panel.setOnClickListener { } // 패널 안쪽은 닫히지 않게
         setContentView(root)
+        setupWindow()
     }
 
     private fun selectMode(m: Mode) {
@@ -216,10 +270,10 @@ class HelperActivity : Activity() {
         heard.clear(); partial = ""; retries = 0; lastHeardAt = 0L
         resultBox.visibility = View.GONE
         listening = true; finishing = false
-        micButton.text = "🎙️  듣고 있어요 (누르면 끝)"
+        micButton.text = "🎙️ 듣는 중 (누르면 끝)"
         micButton.background = Ui.rounded(this, Ui.GREEN, 18)
         micButton.setTextColor(Ui.CARD)
-        heardView.text = "듣고 있어요… 다 말한 뒤 \"보내 줘\"라고 하세요"
+        heardView.text = "듣고 있어요… 끝에 \"보내 줘\"라고 하세요"
         heardView.visibility = View.VISIBLE
         showStatus(null)
         listen()
@@ -274,7 +328,7 @@ class HelperActivity : Activity() {
     private fun resetMic() {
         listening = false
         micButton.isEnabled = true
-        micButton.text = "🎤  눌러서 말하기"
+        micButton.text = "🎤 눌러서 말하기"
         micButton.background = Ui.rounded(this, Ui.BROWN, 18)
         micButton.setTextColor(Ui.YELLOW)
     }
@@ -377,7 +431,7 @@ class HelperActivity : Activity() {
         countdown = 0
         if (!::resultTitle.isInitialized) return
         resultTitle.text = "이렇게 보낼까요? (눌러서 고칠 수 있어요)"
-        sendButton.text = "📤  보내기"
+        sendButton.text = "📤 보내기"
         cancelButton.visibility = View.GONE
         againRow.visibility = View.VISIBLE
     }

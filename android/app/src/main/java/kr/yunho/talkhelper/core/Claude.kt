@@ -28,9 +28,9 @@ class Claude(apiKey: String, baseUrl: String? = null) {
         .apply { if (baseUrl != null) baseUrl(baseUrl) }
         .build()
 
-    /** 내가 대충 말한 것을 정중한 카톡 메시지로. [screenText] 는 그 순간 카톡 화면에 보이던 글 */
-    fun rewrite(spoken: String, screenText: String?, myName: String, myRole: String): String =
-        ask(Prompts.system(myName, myRole), Prompts.user(spoken, screenText))
+    /** 내가 대충 말한 것을 [mode] 말투의 카톡 메시지로. [screenText] 는 그 순간 카톡 화면에 보이던 글 */
+    fun rewrite(mode: Mode, spoken: String, screenText: String?, myName: String, myRole: String): String =
+        ask(Prompts.system(mode, myName, myRole), Prompts.user(mode, spoken, screenText))
             .trim().removeSurrounding("\"").trim()
 
     private fun ask(system: String, user: String): String {

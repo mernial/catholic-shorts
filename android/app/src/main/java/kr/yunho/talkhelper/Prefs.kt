@@ -1,6 +1,7 @@
 package kr.yunho.talkhelper
 
 import android.content.Context
+import kr.yunho.talkhelper.core.Mode
 
 class Prefs(ctx: Context) {
     private val sp = ctx.applicationContext.getSharedPreferences("settings", Context.MODE_PRIVATE)
@@ -23,6 +24,11 @@ class Prefs(ctx: Context) {
     var autoSend: Boolean
         get() = sp.getBoolean("autoSend", true)
         set(v) = sp.edit().putBoolean("autoSend", v).apply()
+
+    /** 마지막으로 고른 말투 모드 */
+    var mode: Mode
+        get() = runCatching { Mode.valueOf(sp.getString("mode", Mode.POLITE.name)!!) }.getOrDefault(Mode.POLITE)
+        set(v) = sp.edit().putString("mode", v.name).apply()
 
     /** 마지막 카톡 보내기 시도 기록 (문제 진단용) */
     var lastSendLog: String

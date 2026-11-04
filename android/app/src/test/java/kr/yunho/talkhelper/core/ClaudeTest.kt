@@ -63,13 +63,15 @@ class ClaudeTest {
     fun rewriteRequestAndResult() {
         FakeServer().use { srv ->
             val c = Claude("sk-test", srv.url)
-            val out = c.rewrite("야 이거 토요일에 하자고 해", screen, "윤호요셉", "본당 주임신부")
+            val out = c.rewrite(Mode.BUSINESS, "야 이거 토요일에 하자고 해", screen, "윤호요셉", "본당 주임신부")
             assertEquals("토요일 저녁 7시에 뵙겠습니다.", out)
             assertTrue(body.contains("\"model\":\"claude-haiku-5-5\""))
             assertTrue(body.contains("\"effort\":\"low\""))
             assertTrue(body.contains("야 이거 토요일에 하자고 해"))
             assertTrue(body.contains("청년 모임 언제 할까요?"))
             assertTrue(body.contains("본당 주임신부"))
+            assertTrue(body.contains("업무 연락"))
+            assertTrue(body.contains("해당 건은 토요일에 진행하겠습니다."))
         }
     }
 
@@ -78,10 +80,10 @@ class ClaudeTest {
         FakeServer().use { srv ->
             val c = Claude("sk-test", srv.url)
             reply = ok("", "refusal")
-            assertThrows(HelperException::class.java) { c.rewrite("응", null, "", "") }
+            assertThrows(HelperException::class.java) { c.rewrite(Mode.POLITE, "응", null, "", "") }
             status = 401
             reply = """{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}"""
-            val e = assertThrows(HelperException::class.java) { c.rewrite("응", null, "", "") }
+            val e = assertThrows(HelperException::class.java) { c.rewrite(Mode.POLITE, "응", null, "", "") }
             assertTrue(e.message!!.contains("API 키"))
         }
     }

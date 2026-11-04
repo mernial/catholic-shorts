@@ -24,9 +24,11 @@ import android.widget.Toast
 import kr.yunho.talkhelper.Ui.add
 import kr.yunho.talkhelper.core.EndSignal
 import kr.yunho.talkhelper.core.HelperException
+import kr.yunho.talkhelper.core.Mode
 
 /**
  * 카톡 위 '도우미' 버튼을 누르면 뜨는 화면.
+ * 위쪽에서 말투 모드(정중하게 / 친구처럼 / 업무 연락)를 고름. 마지막에 고른 모드를 기억.
  * 버튼 한 번: 바로 듣기 → 말이 끝나면 Claude 가 정중하게 다듬기 → 3초 뒤 자동 전송 (그 사이 취소 가능).
  * 설정에서 자동 전송을 끄면 다듬은 문장을 확인하고 '보내기'를 눌러야 전송.
  */
@@ -44,6 +46,8 @@ class HelperActivity : Activity() {
     }
 
     private lateinit var prefs: Prefs
+    private var mode = Mode.POLITE
+    private lateinit var modeButtons: Map<Mode, Button>
     private var screenText: String? = null
 
     private lateinit var micButton: Button
@@ -82,6 +86,7 @@ class HelperActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = Prefs(this)
+        mode = prefs.mode
         start()
     }
 
@@ -110,9 +115,20 @@ class HelperActivity : Activity() {
         val panel = Ui.vbox(ctx, 18).apply { background = Ui.rounded(ctx, Ui.BG, 24) }
 
         val head = Ui.hbox(ctx)
-        head.add(Ui.text(ctx, "정중한 답장 만들기", 22f, bold = true), weight = 3f)
+        head.add(Ui.text(ctx, "답장 만들기", 22f, bold = true), weight = 3f)
         head.add(Ui.button(ctx, "닫기", Ui.CARD, sp = 16f) { finish() }, weight = 1f)
         panel.add(head, 0)
+
+        // 말투 모드 (마지막에 고른 것을 기억)
+        val modeRow = Ui.hbox(ctx)
+        val buttons = LinkedHashMap<Mode, Button>()
+        for (m in Mode.values()) {
+            buttons[m] = modeRow.add(Ui.button(ctx, "${m.emoji}\n${m.label}", Ui.CARD, sp = 16f) { selectMode(m) }
+                .apply { minHeight = Ui.dp(ctx, 76) }) as Button
+        }
+        modeButtons = buttons
+        panel.add(modeRow, 12)
+        paintModes()
         panel.add(Ui.text(ctx, "편하게 말씀하시고 끝에 \"보내 줘\" 또는 \"끝\"이라고 하세요.\n예) \"이거 토요일에 하자고 보내 줘\"", 16f, color = Ui.MUTED), 6)
 
         micButton = Ui.button(ctx, "", sp = 24f) { toggleMic() }.apply { minHeight = Ui.dp(ctx, 96) }
@@ -166,6 +182,19 @@ class HelperActivity : Activity() {
         }
         panel.setOnClickListener { } // 패널 안쪽은 닫히지 않게
         setContentView(root)
+    }
+
+    private fun selectMode(m: Mode) {
+        mode = m
+        prefs.mode = m
+        paintModes()
+        // 이미 다듬은 문장이 있으면 새 말투로 다시 다듬음
+        if (resultBox.visibility == View.VISIBLE && lastSpoken.isNotBlank()) { stopCountdown(); rewrite(lastSpoken) }
+    }
+
+    private fun paintModes() = modeButtons.forEach { (m, b) ->
+        val on = m == mode
+        b.background = Ui.rounded(this, if (on) Ui.YELLOW else Ui.CARD, 18, if (on) Ui.BROWN else Ui.LINE)
     }
 
     private fun showStatus(s: String?, color: Int = Ui.MUTED) {
@@ -316,9 +345,10 @@ class HelperActivity : Activity() {
     private fun rewrite(spoken: String) {
         val claude = ClaudeProvider.get(this) ?: return showStatus("⚠️ 아직 준비가 안 됐어요. '카톡 도우미' 앱을 열어 설정을 마쳐 주세요.", Ui.RED)
         lastSpoken = spoken
-        showStatus("정중하게 다듬는 중… 잠시만요")
+        showStatus("${mode.emoji} '${mode.label}' 말투로 다듬는 중… 잠시만요")
         resultBox.visibility = View.GONE
-        Bg.run({ claude.rewrite(spoken, screenText, prefs.myName, prefs.myRole) }) { r ->
+        val m = mode
+        Bg.run({ claude.rewrite(m, spoken, screenText, prefs.myName, prefs.myRole) }) { r ->
             if (isFinishing) return@run
             r.onSuccess { text ->
                 showStatus(null)

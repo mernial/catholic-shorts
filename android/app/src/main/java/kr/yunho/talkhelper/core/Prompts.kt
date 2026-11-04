@@ -24,7 +24,7 @@ object Prompts {
 
     fun user(spoken: String, screenText: String?): String = buildString {
         if (!screenText.isNullOrBlank()) {
-            append("<카톡화면에보이는글>\n").append(screenText.takeLast(4000)).append("\n</카톡화면에보이는글>\n\n")
+            append("<카톡화면에보이는글>\n").append(screenText.takeLast(2000)).append("\n</카톡화면에보이는글>\n\n")
         }
         append("<내가말한것>\n").append(spoken.trim()).append("\n</내가말한것>\n\n")
         append("이 말을 정중한 카톡 메시지로 바꿔 주세요.")

@@ -9,9 +9,9 @@ import com.anthropic.errors.InternalServerException
 import com.anthropic.errors.PermissionDeniedException
 import com.anthropic.errors.RateLimitException
 import com.anthropic.errors.UnauthorizedException
-import com.anthropic.models.beta.messages.BetaOutputConfig
-import com.anthropic.models.beta.messages.BetaStopReason
-import com.anthropic.models.beta.messages.MessageCreateParams
+import com.anthropic.models.messages.MessageCreateParams
+import com.anthropic.models.messages.OutputConfig
+import com.anthropic.models.messages.StopReason
 import java.time.Duration
 
 /** 화면에 그대로 보여줄 수 있는 한국어 오류 */
@@ -36,18 +36,15 @@ class Claude(apiKey: String, baseUrl: String? = null) {
     private fun ask(system: String, user: String): String {
         val params = MessageCreateParams.builder()
             .model(MODEL)
-            .maxTokens(8000)
-            // 음성으로 주고받는 짧은 작업이라 빠른 응답을 위해 effort 를 낮춤
-            .outputConfig(BetaOutputConfig.builder().effort(BetaOutputConfig.Effort.LOW).build())
-            // 안전 분류기가 거절하면 서버가 다른 모델로 자동 재시도
-            .addBeta("server-side-fallback-2026-07-01")
-            .fallbacksDefault()
+            .maxTokens(4000)
+            // 짧은 문장 다듬기라 effort 를 낮춰 속도와 요금을 줄임
+            .outputConfig(OutputConfig.builder().effort(OutputConfig.Effort.LOW).build())
             .system(system)
             .addUserMessage(user)
             .build()
 
         val msg = try {
-            client.beta().messages().create(params)
+            client.messages().create(params)
         } catch (e: UnauthorizedException) {
             throw HelperException("API 키가 올바르지 않습니다. 설정에서 키를 확인해 주세요.")
         } catch (e: PermissionDeniedException) {
@@ -64,7 +61,7 @@ class Claude(apiKey: String, baseUrl: String? = null) {
             throw HelperException("인터넷 연결을 확인해 주세요.")
         }
 
-        if (msg.stopReason().orElse(null) == BetaStopReason.REFUSAL) {
+        if (msg.stopReason().orElse(null) == StopReason.REFUSAL) {
             throw HelperException("이 내용은 처리할 수 없다고 합니다. 다르게 말해 주세요.")
         }
         val text = msg.content().mapNotNull { it.text().orElse(null)?.text() }.joinToString("")
@@ -73,6 +70,7 @@ class Claude(apiKey: String, baseUrl: String? = null) {
     }
 
     companion object {
-        const val MODEL = "claude-opus-5-5"
+        // 가장 저렴한 모델 (한 번 다듬는 데 1원 안팎)
+        const val MODEL = "claude-haiku-5-5"
     }
 }

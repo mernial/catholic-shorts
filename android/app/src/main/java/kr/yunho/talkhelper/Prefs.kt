@@ -19,6 +19,11 @@ class Prefs(ctx: Context) {
         get() = sp.getBoolean("autoPressSend", true)
         set(v) = sp.edit().putBoolean("autoPressSend", v).apply()
 
+    /** 버튼 한 번으로 말하기→다듬기→전송까지 자동 (끄면 보내기 전에 확인) */
+    var autoSend: Boolean
+        get() = sp.getBoolean("autoSend", true)
+        set(v) = sp.edit().putBoolean("autoSend", v).apply()
+
     val textScale: Float get() = 1.3f
 
     var bubbleX: Int

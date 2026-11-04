@@ -43,7 +43,7 @@ class MainActivity : Activity() {
         val p = Prefs(ctx)
         body.removeAllViews()
         body.add(Ui.text(ctx, "카톡 도우미", 28f, bold = true), 0)
-        body.add(Ui.text(ctx, "카톡 대화방에 뜨는 노란 💬 버튼을 누르고 편하게 말하면, 정중한 말로 바꿔서 보내 드립니다.", 17f, color = Ui.MUTED), 6)
+        body.add(Ui.text(ctx, "카톡 대화방에 뜨는 노란 💬 버튼을 한 번 누르고 편하게 말하면, 정중한 말로 바꿔서 바로 보내 드립니다.", 17f, color = Ui.MUTED), 6)
 
         // 1. 권한
         val steps = Ui.vbox(ctx, 14, Ui.CARD)
@@ -86,12 +86,20 @@ class MainActivity : Activity() {
             setTextColor(Ui.BROWN)
         }
         body.add(pressSend, 12)
+        val autoSend = CheckBox(ctx).apply {
+            text = "말이 끝나면 확인 없이 바로 보내기 (3초 안에 취소 가능)"
+            isChecked = p.autoSend
+            textSize = 18f * p.textScale
+            setTextColor(Ui.BROWN)
+        }
+        body.add(autoSend, 8)
 
         body.add(Ui.button(ctx, "저장", sp = 22f) {
             p.apiKey = key.text.toString().trim()
             p.myName = name.text.toString().trim()
             p.myRole = role.text.toString().trim()
             p.autoPressSend = pressSend.isChecked
+            p.autoSend = autoSend.isChecked
             Toast.makeText(ctx, "저장했습니다", Toast.LENGTH_SHORT).show()
             render()
         }, 20)

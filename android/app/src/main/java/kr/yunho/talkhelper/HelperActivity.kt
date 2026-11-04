@@ -26,7 +26,8 @@ import kr.yunho.talkhelper.core.HelperException
 
 /**
  * 카톡 위 '도우미' 버튼을 누르면 뜨는 화면.
- * 말하기 → Claude 가 정중하게 다듬기 → 확인 → 카톡 입력창에 넣고 전송.
+ * 버튼 한 번: 바로 듣기 → 말이 끝나면 Claude 가 정중하게 다듬기 → 3초 뒤 자동 전송 (그 사이 취소 가능).
+ * 설정에서 자동 전송을 끄면 다듬은 문장을 확인하고 '보내기'를 눌러야 전송.
  */
 class HelperActivity : Activity() {
 
@@ -34,6 +35,8 @@ class HelperActivity : Activity() {
         /** 버튼을 누른 순간 카톡 화면에 보이던 글 (대화 맥락) */
         @Volatile var pendingScreenText: String? = null
         private const val REQ_MIC = 7
+        private const val COUNTDOWN = 3
+        private const val MAX_RETRY = 3
     }
 
     private lateinit var prefs: Prefs
@@ -45,8 +48,25 @@ class HelperActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var resultBox: LinearLayout
     private lateinit var resultEdit: EditText
+    private lateinit var resultTitle: TextView
+    private lateinit var sendButton: Button
+    private lateinit var cancelButton: Button
+    private lateinit var againRow: LinearLayout
 
-    // 쉬어 가며 말해도 되도록 '다 말했어요'를 누를 때까지 이어서 들음
+    // 자동 전송 카운트다운
+    private var countdown = 0
+    private val tick = object : Runnable {
+        override fun run() {
+            if (countdown <= 0) { send(); return }
+            resultTitle.text = "${countdown}초 뒤에 보냅니다…"
+            sendButton.text = "📤  지금 보내기"
+            countdown--
+            Bg.main.postDelayed(this, 1000)
+        }
+    }
+
+    // 말이 끝나면(잠시 조용해지면) 자동으로 듣기를 마침. 말을 시작하기 전 침묵은 몇 번 기다려 줌
+    private var retries = 0
     private var recognizer: SpeechRecognizer? = null
     private var listening = false
     private var finishing = false
@@ -72,7 +92,8 @@ class HelperActivity : Activity() {
         heard.clear(); partial = ""; lastSpoken = ""
         build()
         // 버튼을 누르자마자 바로 듣기 시작
-        if (prefs.apiKey.isNotBlank() && hasMic()) toggleMic()
+        if (prefs.apiKey.isBlank()) showStatus("⚠️ '카톡 도우미' 앱을 열어 Claude API 키를 먼저 넣어 주세요.", Ui.RED)
+        else toggleMic() // 마이크 권한이 없으면 여기서 허용을 물음
     }
 
     private fun hasMic() = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
@@ -87,7 +108,7 @@ class HelperActivity : Activity() {
         head.add(Ui.text(ctx, "정중한 답장 만들기", 22f, bold = true), weight = 3f)
         head.add(Ui.button(ctx, "닫기", Ui.CARD, sp = 16f) { finish() }, weight = 1f)
         panel.add(head, 0)
-        panel.add(Ui.text(ctx, "편하게 말씀하세요. 예) \"이거 토요일에 하자고 해\"", 16f, color = Ui.MUTED), 6)
+        panel.add(Ui.text(ctx, "편하게 말씀하세요. 예) \"이거 토요일에 하자고 해\"\n말이 끝나면 정중하게 바꿔서 보내 드려요.", 16f, color = Ui.MUTED), 6)
 
         micButton = Ui.button(ctx, "", sp = 24f) { toggleMic() }.apply { minHeight = Ui.dp(ctx, 96) }
         panel.add(micButton, 14)
@@ -113,19 +134,23 @@ class HelperActivity : Activity() {
         panel.add(status)
 
         resultBox = Ui.vbox(ctx, 12, Ui.MINE).apply { visibility = View.GONE }
-        resultBox.add(Ui.text(ctx, "이렇게 보낼까요? (눌러서 고칠 수 있어요)", 15f, color = Ui.MUTED), 0)
-        resultEdit = Ui.input(ctx, "", multiline = true).apply { textSize = 22f * prefs.textScale }
-        resultBox.add(resultEdit, 6)
-        resultBox.add(Ui.button(ctx, "📤  보내기", Ui.BROWN, Ui.YELLOW, sp = 24f) { send() }.apply { minHeight = Ui.dp(ctx, 84) }, 10)
-        val again = Ui.hbox(ctx)
-        again.add(Ui.button(ctx, "🎤 다시 말하기", Ui.CARD, sp = 16f) { resultBox.visibility = View.GONE; toggleMic() })
-        again.add(Ui.button(ctx, "🔄 다시 다듬기", Ui.CARD, sp = 16f) { if (lastSpoken.isNotBlank()) rewrite(lastSpoken) })
-        resultBox.add(again, 8)
-        panel.add(resultBox, 14)
-
-        if (prefs.apiKey.isBlank()) {
-            panel.add(Ui.text(ctx, "⚠️ '카톡 도우미' 앱을 열어 Claude API 키를 먼저 넣어 주세요.", 17f, color = Ui.RED))
+        resultTitle = Ui.text(ctx, "", 17f, bold = true, color = Ui.BROWN)
+        resultBox.add(resultTitle, 0)
+        resultEdit = Ui.input(ctx, "", multiline = true).apply {
+            textSize = 22f * prefs.textScale
+            // 고치려고 누르면 자동 전송을 멈춤
+            setOnTouchListener { _, e -> if (e.action == android.view.MotionEvent.ACTION_DOWN) stopCountdown(); false }
         }
+        resultBox.add(resultEdit, 6)
+        sendButton = Ui.button(ctx, "📤  보내기", Ui.BROWN, Ui.YELLOW, sp = 24f) { send() }.apply { minHeight = Ui.dp(ctx, 84) }
+        resultBox.add(sendButton, 10)
+        cancelButton = Ui.button(ctx, "✋  취소 (보내지 않기)", Ui.CARD, Ui.RED, sp = 20f) { stopCountdown() }.apply { minHeight = Ui.dp(ctx, 72) }
+        resultBox.add(cancelButton, 8)
+        againRow = Ui.hbox(ctx)
+        againRow.add(Ui.button(ctx, "🎤 다시 말하기", Ui.CARD, sp = 16f) { stopCountdown(); resultBox.visibility = View.GONE; toggleMic() })
+        againRow.add(Ui.button(ctx, "🔄 다시 다듬기", Ui.CARD, sp = 16f) { stopCountdown(); if (lastSpoken.isNotBlank()) rewrite(lastSpoken) })
+        resultBox.add(againRow, 8)
+        panel.add(resultBox, 14)
 
         val scroll = ScrollView(ctx).apply { addView(panel) }
         val root = FrameLayout(ctx).apply {
@@ -153,10 +178,11 @@ class HelperActivity : Activity() {
             showStatus("이 휴대폰에서 음성 인식을 쓸 수 없습니다. '글로 쓰기'를 이용해 주세요.", Ui.RED)
             return
         }
-        heard.clear(); partial = ""
+        stopCountdown()
+        heard.clear(); partial = ""; retries = 0
         resultBox.visibility = View.GONE
         listening = true; finishing = false
-        micButton.text = "✅  다 말했어요"
+        micButton.text = "🎙️  듣고 있어요 (누르면 끝)"
         micButton.background = Ui.rounded(this, Ui.GREEN, 18)
         micButton.setTextColor(Ui.CARD)
         heardView.text = "듣고 있어요… 편하게 말씀하세요"
@@ -237,7 +263,15 @@ class HelperActivity : Activity() {
             if (best.isNotBlank()) heard.append(' ').append(best)
             partial = ""
             heardView.text = heard.toString().trim().ifBlank { "듣고 있어요…" }
-            if (finishing) finishSpeech() else if (listening) listen()
+            when {
+                finishing -> finishSpeech()
+                !listening -> {}
+                // 말이 끝났으면 바로 다듬기로
+                heard.isNotBlank() -> { listening = false; finishSpeech() }
+                // 아직 아무 말도 없었으면 조금 더 기다림
+                retries++ < MAX_RETRY -> listen()
+                else -> { resetMic(); heardView.text = "말씀을 듣지 못했어요. 다시 눌러 주세요." }
+            }
         }
 
         override fun onError(error: Int) {
@@ -247,8 +281,11 @@ class HelperActivity : Activity() {
                 error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> { resetMic(); showStatus("마이크 권한이 필요해요.", Ui.RED) }
                 error == SpeechRecognizer.ERROR_NETWORK || error == SpeechRecognizer.ERROR_NETWORK_TIMEOUT ->
                     { resetMic(); showStatus("인터넷 연결을 확인해 주세요.", Ui.RED) }
-                // 말이 잠시 끊긴 것 → 계속 듣기
-                else -> Bg.main.postDelayed({ if (listening) listen() }, 200)
+                // 말한 내용이 있으면 끝난 것으로 보고 다듬기
+                heard.isNotBlank() || partial.isNotBlank() -> { listening = false; finishSpeech() }
+                // 아직 말을 시작하지 않았으면 조금 더 기다림
+                retries++ < MAX_RETRY -> Bg.main.postDelayed({ if (listening) listen() }, 200)
+                else -> { resetMic(); heardView.text = "말씀을 듣지 못했어요. 다시 눌러 주세요." }
             }
         }
     }
@@ -265,7 +302,9 @@ class HelperActivity : Activity() {
             r.onSuccess { text ->
                 showStatus(null)
                 resultEdit.setText(text)
+                resultEdit.clearFocus()
                 resultBox.visibility = View.VISIBLE
+                if (prefs.autoSend) startCountdown() else stopCountdown()
                 resultBox.post { (resultBox.parent?.parent as? ScrollView)?.smoothScrollTo(0, resultBox.bottom) }
             }.onFailure { showStatus((it as? HelperException)?.message ?: "문제가 생겼어요: ${it.message}", Ui.RED) }
         }
@@ -273,7 +312,27 @@ class HelperActivity : Activity() {
 
     // ───────── 보내기 ─────────
 
+    private fun startCountdown() {
+        cancelButton.visibility = View.VISIBLE
+        againRow.visibility = View.GONE
+        countdown = COUNTDOWN
+        Bg.main.removeCallbacks(tick)
+        tick.run()
+    }
+
+    /** 자동 전송을 멈추고 직접 확인하는 화면으로 */
+    private fun stopCountdown() {
+        Bg.main.removeCallbacks(tick)
+        countdown = 0
+        if (!::resultTitle.isInitialized) return
+        resultTitle.text = "이렇게 보낼까요? (눌러서 고칠 수 있어요)"
+        sendButton.text = "📤  보내기"
+        cancelButton.visibility = View.GONE
+        againRow.visibility = View.VISIBLE
+    }
+
     private fun send() {
+        Bg.main.removeCallbacks(tick)
         val text = resultEdit.text.toString().trim()
         if (text.isEmpty()) return
         val app = applicationContext
@@ -298,6 +357,7 @@ class HelperActivity : Activity() {
     private fun toast(ctx: Context, s: String) = Toast.makeText(ctx, s, Toast.LENGTH_LONG).show()
 
     override fun onDestroy() {
+        Bg.main.removeCallbacks(tick)
         runCatching { recognizer?.destroy() }
         recognizer = null
         super.onDestroy()

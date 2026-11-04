@@ -24,6 +24,11 @@ class Prefs(ctx: Context) {
         get() = sp.getBoolean("autoSend", true)
         set(v) = sp.edit().putBoolean("autoSend", v).apply()
 
+    /** 마지막 카톡 보내기 시도 기록 (문제 진단용) */
+    var lastSendLog: String
+        get() = sp.getString("lastSendLog", "") ?: ""
+        set(v) = sp.edit().putString("lastSendLog", v).apply()
+
     val textScale: Float get() = 1.3f
 
     var bubbleX: Int

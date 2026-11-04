@@ -340,11 +340,12 @@ class HelperActivity : Activity() {
         val svc = KakaoAccessibilityService.instance
         finish() // 이 화면이 닫혀 카톡이 다시 앞에 오면 입력창에 넣음
         if (svc == null) { copyFallback(app, text); return }
-        svc.typeAndSend(text, pressSend, { ok ->
-            when {
-                !ok -> copyFallback(app, text)
-                pressSend -> toast(app, "보냈습니다")
-                else -> toast(app, "입력창에 넣었어요. 전송을 눌러 주세요")
+        svc.typeAndSend(text, pressSend, { r ->
+            when (r) {
+                KakaoAccessibilityService.SendResult.SENT -> toast(app, "보냈습니다")
+                KakaoAccessibilityService.SendResult.TYPED_ONLY ->
+                    toast(app, if (pressSend) "입력창에 넣었어요. 오른쪽 전송 버튼을 눌러 주세요" else "입력창에 넣었어요. 전송을 눌러 주세요")
+                KakaoAccessibilityService.SendResult.FAILED -> copyFallback(app, text)
             }
         })
     }

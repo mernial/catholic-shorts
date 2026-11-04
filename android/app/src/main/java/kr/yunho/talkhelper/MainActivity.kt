@@ -108,5 +108,12 @@ class MainActivity : Activity() {
             startActivity(Intent(ctx, HelperActivity::class.java))
         }, 12)
         body.add(Ui.text(ctx, "시험 화면에서 '보내기'를 누르면 카톡이 열려 있지 않아 글이 복사만 됩니다.", 14f, color = Ui.MUTED), 4)
+
+        // 문제 진단: 자동 전송이 안 될 때 이 부분을 캡처해서 보내 주세요
+        val log = p.lastSendLog
+        if (log.isNotBlank() && log != "성공") {
+            body.add(Ui.text(ctx, "마지막 보내기 기록 (안 될 때 이 화면을 캡처해 주세요)", 15f, bold = true, color = Ui.MUTED), 24)
+            body.add(Ui.text(ctx, log, 12f, color = Ui.MUTED).apply { setTextIsSelectable(true) }, 4)
+        }
     }
 }

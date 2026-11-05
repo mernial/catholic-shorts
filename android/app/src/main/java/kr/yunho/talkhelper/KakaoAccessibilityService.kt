@@ -121,13 +121,24 @@ class KakaoAccessibilityService : AccessibilityService() {
     }
 
     /** 카톡 화면에 보이는 글자들 (입력창 제외) */
+    /**
+     * 카톡 화면에 보이는 글. 오른쪽에 붙은 말풍선(내가 보낸 말)은 앞에 "나: " 를 붙여
+     * AI 가 누가 한 말인지 헷갈리지 않게 함 (상대가 나를 부르는 '신부님' 같은 호칭을 상대에게 쓰는 일 방지)
+     */
     fun screenTexts(): List<String> {
         val root = kakaoRoot() ?: return emptyList()
+        val win = bounds(root)
+        val w = win.width().coerceAtLeast(1)
         val out = ArrayList<String>()
         walk(root) { n ->
             if (!n.isEditable) {
                 val t = n.text?.toString()?.trim()
-                if (!t.isNullOrEmpty() && out.lastOrNull() != t) out += t
+                if (!t.isNullOrEmpty()) {
+                    val b = bounds(n)
+                    val mine = b.left - win.left > w * 0.3 && win.right - b.right < w * 0.12 && b.width() < w * 0.8
+                    val line = if (mine) "나: $t" else t
+                    if (out.lastOrNull() != line) out += line
+                }
             }
             out.size > 400
         }

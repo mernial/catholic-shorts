@@ -172,7 +172,8 @@ class HelperActivity : Activity() {
 
         // 손잡이 + 닫기
         val head = Ui.hbox(ctx)
-        val handle = Ui.text(ctx, "⠿  답장 도우미  (끌어서 옮기기)", 14f, bold = true, color = Ui.MUTED).apply {
+        // 지금 말투와 보내는 방식만 작게 (바꾸려면 도우미 버튼을 꾹 눌러 고름)
+        val handle = Ui.text(ctx, "⠿  ${mode.emoji} ${mode.label} · ${prefs.sendMode.label}", 14f, bold = true, color = Ui.MUTED).apply {
             setPadding(0, Ui.dp(ctx, 8), 0, Ui.dp(ctx, 8))
         }
         head.add(handle, weight = 4f)
@@ -185,6 +186,7 @@ class HelperActivity : Activity() {
         Mode.values().toList().chunked(2).forEachIndexed { i, pair ->
             val modeRow = Ui.hbox(ctx)
             for (m in pair) buttons[m] = modeRow.add(small("${m.emoji} ${m.label}", sp = 14f) { selectMode(m) }) as Button
+            modeRow.visibility = View.GONE   // 카드는 간단히: 말투는 버튼을 꾹 눌러 고름
             card.add(modeRow, if (i == 0) 6 else 4)
         }
         modeButtons = buttons
@@ -196,6 +198,7 @@ class HelperActivity : Activity() {
         val sendButtons = LinkedHashMap<SendMode, Button>()
         for (m in SendMode.values()) sendButtons[m] = sendModeRow.add(small(m.label, sp = 14f) { selectSendMode(m) }) as Button
         sendModeButtons = sendButtons
+        sendModeRow.visibility = View.GONE   // 보내는 방식은 꾹 눌러 ⚙️ 설정에서
         card.add(sendModeRow, 6)
         paintSendModes()
 
@@ -203,18 +206,19 @@ class HelperActivity : Activity() {
         val talkRow = Ui.hbox(ctx)
         micButton = small("", Ui.BROWN, Ui.YELLOW, sp = 16f) { if (!listening) askMode = false; toggleMic() }
         talkRow.add(micButton, weight = 2f)
+        // ⌨️·🔎 는 숨김 (찾기는 버튼을 꾹 눌러 🔎)
         talkRow.add(small("⌨️", sp = 15f) {
             stopRecognizer(); resetMic()
             typedRow.visibility = View.VISIBLE
             typedInput.requestFocus()
-        }, weight = 0.7f)
+        }, weight = 0.7f).visibility = View.GONE
         // 지금 카톡 화면에 보이는 대화에서 묻기
         talkRow.add(small("🔎", sp = 15f) {
             stopRecognizer(); resetMic()
             askMode = true
             toggleMic()
             if (listening) heardView.text = "무엇을 찾을까요? 말씀하세요 (예: 연습이 언제였지?)"
-        }, weight = 0.7f)
+        }, weight = 0.7f).visibility = View.GONE
         card.add(talkRow, 8)
         resetMic()
         heardView = Ui.text(ctx, "끝에 \"보내 줘\"라고 하면 바로 보냅니다", 15f, color = Ui.MUTED).apply { maxLines = 3 }

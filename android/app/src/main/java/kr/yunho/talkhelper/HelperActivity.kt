@@ -263,6 +263,8 @@ class HelperActivity : Activity() {
         answerBox = Ui.vbox(ctx, 10, Ui.THEM).apply { visibility = View.GONE }
         answerText = Ui.text(ctx, "", 18f).apply { setTextIsSelectable(true) }
         answerBox.add(answerText, 0)
+        answerPhotos = Ui.vbox(ctx).apply { visibility = View.GONE }
+        answerBox.add(answerPhotos, 8)
         val answerRow = Ui.hbox(ctx)
         answerRow.add(small("📍 대화에서 보기", Ui.BROWN, Ui.YELLOW, sp = 15f) { goToMessage() }, weight = 1.4f)
         answerRow.add(small("🔊 듣기", sp = 15f) { speak(answerText.text.toString()) })
@@ -531,6 +533,7 @@ class HelperActivity : Activity() {
     private var askMode = false
     private lateinit var answerBox: LinearLayout
     private lateinit var answerText: TextView
+    private lateinit var answerPhotos: LinearLayout
     private var answerKeyword: String? = null
     private var tts: android.speech.tts.TextToSpeech? = null
 
@@ -559,6 +562,15 @@ class HelperActivity : Activity() {
                 showStatus(null)
                 answerKeyword = word
                 answerText.text = text
+                // 사진을 찾은 경우: 함께 저장해 둔 사진 중 그 무렵 것을 보여 줌 (사진은 휴대폰 밖으로 안 나감)
+                answerPhotos.removeAllViews()
+                val at = kr.yunho.talkhelper.core.PhotoFind.photoTime(full)
+                val photos = at?.let { ChatStore.photosAt(this, room, it) }.orEmpty()
+                if (photos.isNotEmpty()) answerPhotos.add(PhotoStrip.view(this, photos), 0)
+                else if (at != null) answerPhotos.add(Ui.text(this,
+                    if (room == null) "사진은 '대화에서 찾기'로 대화를 사진까지 저장해 두면 보여 드려요." else "그 무렵 사진 파일은 저장돼 있지 않아요. 📍로 그 위치에 가서 보세요.",
+                    14f, color = Ui.MUTED), 0)
+                answerPhotos.visibility = if (answerPhotos.childCount > 0) View.VISIBLE else View.GONE
                 answerBox.visibility = View.VISIBLE
                 speak(text)
             }.onFailure { showStatus((it as? HelperException)?.message ?: "문제가 생겼어요: ${it.message}", Ui.RED) }

@@ -38,6 +38,10 @@ class KakaoAccessibilityService : AccessibilityService() {
         private val SEND_IDS = listOf("send", "send_button", "send_btn", "btn_send", "sendButton", "send_button_layout", "chatroom_send").map { "$KAKAO:id/$it" }
         /** 입력창 옆에 있지만 전송이 아닌 버튼 */
         private val NOT_SEND = listOf("이모티콘", "샵", "검색", "#", "더보기", "메뉴", "첨부", "음성", "Emoticon", "Search", "More")
+        // 떠 있는 버튼 색
+        private val CHARCOAL_TOP = android.graphics.Color.parseColor("#3A3A40")
+        private val CHARCOAL_BOTTOM = android.graphics.Color.parseColor("#17171A")
+        private val GOLD = android.graphics.Color.parseColor("#C9A96E")
         /** 이만큼 꾹 누르면 동그라미 메뉴 */
         private const val LONG_PRESS_MS = 450L
         private val SEND_WORDS = listOf("전송", "보내기", "메시지 전송", "Send")
@@ -283,20 +287,20 @@ class KakaoAccessibilityService : AccessibilityService() {
     @SuppressLint("ClickableViewAccessibility")
     private fun showBubble() {
         if (bubble != null) return
-        val size = Ui.dp(this, 76)
-        val v = TextView(this).apply {
-            text = "💬\n도우미"
-            gravity = Gravity.CENTER
-            setTextColor(Ui.BROWN)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-            background = android.graphics.drawable.GradientDrawable().apply {
+        val size = Ui.dp(this, 62)
+        // 차콜 원 + 얇은 금색 테두리 + 흰 마이크 하나 (글자 없이 간결하게)
+        val v = android.widget.ImageView(this).apply {
+            setImageResource(R.drawable.ic_bubble_mic)
+            scaleType = android.widget.ImageView.ScaleType.CENTER
+            background = android.graphics.drawable.GradientDrawable(
+                android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
+                intArrayOf(CHARCOAL_TOP, CHARCOAL_BOTTOM),
+            ).apply {
                 shape = android.graphics.drawable.GradientDrawable.OVAL
-                setColor(Ui.YELLOW)
-                setStroke(Ui.dp(this@KakaoAccessibilityService, 3), Ui.BROWN)
+                setStroke(Ui.dp(this@KakaoAccessibilityService, 2), GOLD)
             }
-            elevation = Ui.dp(this@KakaoAccessibilityService, 6).toFloat()
-            contentDescription = getString(R.string.app_name) + " 열기"
+            elevation = Ui.dp(this@KakaoAccessibilityService, 10).toFloat()
+            contentDescription = getString(R.string.app_name) + " 열기. 길게 누르면 말투와 찾기 메뉴"
         }
         // 지금 화면 크기 (폴드폰은 펼침·접힘에 따라 바뀜)
         val (sw, sh) = screenSize()
@@ -405,7 +409,7 @@ class KakaoAccessibilityService : AccessibilityService() {
     private fun oval(fill: Int, stroke: Int) = android.graphics.drawable.GradientDrawable().apply {
         shape = android.graphics.drawable.GradientDrawable.OVAL
         setColor(fill)
-        setStroke(Ui.dp(this@KakaoAccessibilityService, 3), stroke)
+        setStroke(Ui.dp(this@KakaoAccessibilityService, 2), stroke)
     }
 
     private fun showMenu() {
@@ -413,7 +417,7 @@ class KakaoAccessibilityService : AccessibilityService() {
         closeMenu()
         val prefs = Prefs(this)
         val root = FrameLayout(this).apply {
-            setBackgroundColor(0x55000000)
+            setBackgroundColor(0x66101012)
             setOnClickListener { closeMenu() }   // 빈 곳을 누르면 닫힘
         }
         val lp = WindowManager.LayoutParams(
@@ -433,11 +437,11 @@ class KakaoAccessibilityService : AccessibilityService() {
             val item = TextView(this).apply {
                 text = label
                 gravity = Gravity.CENTER
-                setTextColor(Ui.BROWN)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
-                background = if (label.startsWith("🔎")) oval(Ui.BROWN, Ui.BROWN).also { setTextColor(Ui.YELLOW) }
-                    else oval(if (on) Ui.YELLOW else 0xFFFFFFFF.toInt(), Ui.BROWN)
+                setLineSpacing(0f, 0.95f)
+                if (on) { setTextColor(0xFFFFFFFF.toInt()); background = oval(CHARCOAL_BOTTOM, GOLD) }
+                else { setTextColor(CHARCOAL_BOTTOM); background = oval(0xFFFFFFFF.toInt(), 0xFFE4DED3.toInt()) }
                 elevation = Ui.dp(this@KakaoAccessibilityService, 8).toFloat()
                 contentDescription = label.replace("\n", " ")
                 alpha = 0f; scaleX = 0.3f; scaleY = 0.3f
@@ -456,13 +460,19 @@ class KakaoAccessibilityService : AccessibilityService() {
             val cx = bl[0] + b.width / 2f - o[0]
             val cy = bl[1] + b.height / 2f - o[1]
             val w = root.width; val h = root.height
-            val toward = Math.atan2((h / 2f - cy).toDouble(), (w / 2f - cx).toDouble())
-            val spread = Math.toRadians(180.0)
+            // 버튼이 오른쪽에 있으면 왼쪽으로, 왼쪽에 있으면 오른쪽으로 반원(위→아래)으로 펼침.
+            // 버튼이 화면 위·아래 끝에 있어도 반원이 화면 안에 다 들어오게 중심을 옮김
             val r = Ui.dp(this, 140)
+            val toward = if (cx > w / 2f) Math.PI else 0.0
+            val spread = Math.PI
+            val half = r + size / 2f
+            val acy = if (h > half * 2) cy.coerceIn(half, h - half) else h / 2f
             items.forEachIndexed { i, (v, _) ->
-                val a = toward - spread / 2 + spread * i / (items.size - 1)
+                // 위에서부터 차례로 (오른쪽 버튼이면 시계 반대 방향)
+                val t = i.toDouble() / (items.size - 1)
+                val a = if (toward == 0.0) -spread / 2 + spread * t else Math.PI + spread / 2 - spread * t
                 val x = (cx + (r * Math.cos(a)).toFloat() - size / 2f).coerceIn(0f, maxOf(0, w - size).toFloat())
-                val y = (cy + (r * Math.sin(a)).toFloat() - size / 2f).coerceIn(0f, maxOf(0, h - size).toFloat())
+                val y = (acy + (r * Math.sin(a)).toFloat() - size / 2f).coerceIn(0f, maxOf(0, h - size).toFloat())
                 v.translationX = cx - size / 2f; v.translationY = cy - size / 2f
                 v.animate().translationX(x).translationY(y).alpha(1f).scaleX(1f).scaleY(1f)
                     .setStartDelay(i * 50L).setDuration(220).start()

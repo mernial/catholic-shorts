@@ -183,6 +183,37 @@ class KakaoAccessibilityService : AccessibilityService() {
         return sb.toString()
     }
 
+    /**
+     * 카톡 대화방의 🔍(대화 검색)을 눌러 [keyword] 를 넣고 검색 → 그 대화 위치로 이동.
+     * 카톡 화면 구조에 따라 실패할 수 있음 (그때는 false)
+     */
+    fun searchInChat(keyword: String, done: (Boolean) -> Unit, attempt: Int = 0) {
+        val root = kakaoRoot()
+        val searchBtn = root?.let { r ->
+            walk(r) { n -> n.isVisibleToUser && label(n).let { it == "검색" || it == "대화 검색" || it == "Search" } }
+        }?.let { clickable(it) }
+        if (searchBtn == null) {
+            if (attempt < 8) handler.postDelayed({ searchInChat(keyword, done, attempt + 1) }, 300) else done(false)
+            return
+        }
+        searchBtn.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+        handler.postDelayed({
+            // 검색칸은 화면 위쪽에 열림 → 가장 위에 있는 입력칸
+            val r = kakaoRoot()
+            val edits = ArrayList<AccessibilityNodeInfo>()
+            walk(r) { n -> if (n.isEditable && n.isVisibleToUser) edits += n; false }
+            val field = edits.minByOrNull { bounds(it).top }
+            if (field == null) { done(false); return@postDelayed }
+            field.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+            val args = Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, keyword) }
+            val ok = field.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+            if (ok && Build.VERSION.SDK_INT >= 30) {
+                field.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)
+            }
+            done(ok)
+        }, 700)
+    }
+
     enum class SendResult { SENT, TYPED_ONLY, FAILED }
 
     /**

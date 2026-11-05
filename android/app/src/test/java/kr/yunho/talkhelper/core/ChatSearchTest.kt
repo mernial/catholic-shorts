@@ -40,4 +40,14 @@ class ChatSearchTest {
         assertEquals("김미카엘", ChatSearch.roomName("김미카엘 님과 카카오톡 대화\n저장한 날짜 : 2026. 11. 5."))
         assertEquals("청년부 단톡방", ChatSearch.roomName("청년부 단톡방 카카오톡 대화\n저장한 날짜"))
     }
+
+    @Test
+    fun splitAnswerTakesSearchWord() {
+        val (text, word) = ChatSearch.splitAnswer("토요일 저녁 6시 반입니다.\n10월 28일 김미카엘님: '성가대 연습은 토요일 저녁 6시 반입니다'\n찾을말: 성가대 연습")
+        assertEquals("성가대 연습", word)
+        assertTrue(!text.contains("찾을말"))
+        val (t2, w2) = ChatSearch.splitAnswer("대화에서 찾지 못했습니다.")
+        assertEquals("대화에서 찾지 못했습니다.", t2)
+        assertEquals(null, w2)
+    }
 }

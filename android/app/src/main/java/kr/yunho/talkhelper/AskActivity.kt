@@ -211,7 +211,8 @@ class AskActivity : Activity(), TextToSpeech.OnInitListener {
         Bg.run({ claude.answer(q, chat, room) }) { r ->
             if (isFinishing) return@run
             status.visibility = View.GONE
-            val text = r.getOrElse { (it as? HelperException)?.message ?: "문제가 생겼어요: ${it.message}" }
+            val text = r.map { ChatSearch.splitAnswer(it).first }
+                .getOrElse { (it as? HelperException)?.message ?: "문제가 생겼어요: ${it.message}" }
             answer.text = text
             answer.visibility = View.VISIBLE
             body.findViewWithTag<Button>("replay")?.visibility = View.VISIBLE

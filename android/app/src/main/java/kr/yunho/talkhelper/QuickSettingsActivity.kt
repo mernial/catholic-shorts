@@ -37,8 +37,8 @@ class QuickSettingsActivity : Activity() {
 
         card.add(Ui.text(this, "다듬는 AI", 17f, bold = true), 18)
         aiButtons = mapOf(
-            false to choice(card, "기본 (빠르고 저렴)", "한 번에 약 1원 · 대부분 충분해요") { prefs.carefulRewrite = false; paint(); saved() },
-            true to choice(card, "섬세하게 (더 높은 AI)", "한 번에 약 10원 · 어른께 드리는 글처럼 존댓말이 아주 중요할 때") { prefs.carefulRewrite = true; paint(); saved() },
+            false to choice(card, "기본", "빠르고 대부분 충분해요") { prefs.carefulRewrite = false; paint(); saved() },
+            true to choice(card, "섬세하게", "말투를 더 섬세하게 다듬어요") { prefs.carefulRewrite = true; paint(); saved() },
         )
 
         card.add(Ui.button(this, "닫기", sp = 19f) { finish() }, 18)

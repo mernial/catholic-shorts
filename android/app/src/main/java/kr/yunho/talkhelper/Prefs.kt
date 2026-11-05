@@ -35,6 +35,11 @@ class Prefs(ctx: Context) {
             ?: if (sp.getBoolean("autoSend", true)) SendMode.COUNTDOWN else SendMode.CONFIRM
         set(v) = sp.edit().putString("sendMode", v.name).apply()
 
+    /** 카톡 위 🎤 버튼 켜기/끄기 (앱 첫 화면) */
+    var enabled: Boolean
+        get() = sp.getBoolean("enabled", true)
+        set(v) = sp.edit().putBoolean("enabled", v).apply()
+
     /** 답장 다듬기를 더 섬세한(조금 비싼) 모델로 */
     var carefulRewrite: Boolean
         get() = sp.getBoolean("carefulRewrite", false)

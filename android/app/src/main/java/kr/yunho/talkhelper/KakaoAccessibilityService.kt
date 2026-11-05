@@ -334,7 +334,8 @@ class KakaoAccessibilityService : AccessibilityService() {
     private fun pickTextOnly(appName: String, tries: Int, then: (Boolean) -> Unit) {
         if (stopCollect) { then(false); return }
         if (shareTargetShown(appName)) { then(true); return }
-        val option = findAny({ (it.contains("텍스트") || it.contains("Text", ignoreCase = true)) && !it.contains("저장") && !it.contains("Save", ignoreCase = true) })
+        // 기종마다 '텍스트만 보내기' / '텍스트 메시지만 저장'(외부로 전송) 등 이름이 다름. '모든 메시지 내부저장소'는 제외
+        val option = findAny({ (it.contains("텍스트") || it.contains("Text", ignoreCase = true)) && !it.contains("내부") && !it.contains("모든") && !it.contains("Internal", ignoreCase = true) })
         if (option != null && tapNode(option)) {
             Prefs(this).logExport("4 '${label(option).take(20)}' 누름")
             // 고른 뒤 '보내기/확인' 버튼이 따로 있는 화면이면 그것도 누름
@@ -351,6 +352,24 @@ class KakaoAccessibilityService : AccessibilityService() {
         }
         if (tries <= 0) { then(false); return }
         handler.postDelayed({ pickTextOnly(appName, tries - 1, then) }, 450)
+    }
+
+    /** 공유 창에서 이 앱을 찾아 누름. 안 보이면 '더보기'를 한 번 열고, 그래도 없으면 목록을 넘겨 가며 찾음 */
+    private fun pickShareTarget(appName: String, tries: Int, openedMore: Boolean, then: (Boolean) -> Unit) {
+        if (stopCollect) { then(false); return }
+        findAny({ it == "대화에서 찾기" || it == appName || it.startsWith(appName) })?.let { n ->
+            if (tapNode(n)) { handler.postDelayed({ then(true) }, 900); return }
+        }
+        if (tries <= 0) { then(false); return }
+        var more = openedMore
+        if (!more) {
+            findAny({ it == "더보기" || it == "More" || it.contains("더 보기") })?.let { n ->
+                if (tapNode(n)) { more = true; Prefs(this).logExport("5 공유 창 '더보기' 누름") }
+            }
+        } else {
+            allRoots().forEach { r -> walk(r) { x -> x.isScrollable && x.isVisibleToUser }?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD) }
+        }
+        handler.postDelayed({ pickShareTarget(appName, tries - 1, more, then) }, 600)
     }
 
     /**
@@ -399,8 +418,8 @@ class KakaoAccessibilityService : AccessibilityService() {
                     pickTextOnly(appName, 12) { ok4 ->
                         if (!ok4) return@pickTextOnly end(false, "'텍스트만 보내기'")
                         log.logExport("4 텍스트만 보내기 누름")
-                        // 5) 공유 창에서 이 앱('대화에서 찾기') 고르기
-                        tapWhenShown({ it == "대화에서 찾기" || it == appName || it.startsWith(appName) }, 12, true) { ok5 ->
+                        // 5) 공유 창에서 이 앱('대화에서 찾기') 고르기 — 첫 줄에 없으면 '더보기'를 열어 찾음
+                        pickShareTarget(appName, 16, false) { ok5 ->
                             end(ok5, if (ok5) "" else "공유 창에서 '대화에서 찾기'")
                         }
                     }

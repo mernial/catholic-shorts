@@ -336,7 +336,7 @@ class KakaoAccessibilityService : AccessibilityService() {
                 MotionEvent.ACTION_MOVE -> {
                     val dx = e.rawX - downX; val dy = e.rawY - downY
                     // 메뉴가 펼쳐진 뒤에는 손가락이 지나는 동그라미를 표시 (떼면 그것을 고름)
-                    if (longPressed) { hoverMenu(e.rawX, e.rawY); return@setOnTouchListener true }
+                    if (longPressed) { hoverMenu(e.rawX, e.rawY, Math.hypot(dx.toDouble(), dy.toDouble()) > size); return@setOnTouchListener true }
                     if (dragged || Math.abs(dx) > slop || Math.abs(dy) > slop) {
                         if (!dragged) handler.removeCallbacks(longPress)
                         dragged = true
@@ -349,7 +349,7 @@ class KakaoAccessibilityService : AccessibilityService() {
                 MotionEvent.ACTION_UP -> {
                     handler.removeCallbacks(longPress)
                     when {
-                        longPressed -> releaseMenu(e.rawX, e.rawY)
+                        longPressed -> releaseMenu(e.rawX, e.rawY, Math.hypot((e.rawX - downX).toDouble(), (e.rawY - downY).toDouble()) > size)
                         dragged -> { prefs.bubbleX = lp.x; prefs.bubbleY = lp.y }
                         else -> openHelper()
                     }
@@ -493,18 +493,23 @@ class KakaoAccessibilityService : AccessibilityService() {
     }
 
     /** 꾹 누른 채로 손가락을 옮기면 지나는 동그라미를 크게 */
-    private fun hoverMenu(rawX: Float, rawY: Float) {
-        val hot = itemAt(rawX, rawY)?.first
+    private fun hoverMenu(rawX: Float, rawY: Float, movedAway: Boolean) {
+        // 버튼 위에 그대로 있으면(펼쳐지는 중인 동그라미가 손 밑을 지나가도) 아무것도 고르지 않음
+        val hot = if (movedAway) itemAt(rawX, rawY)?.first else null
         if (hot === menuHot) return
         menuHot?.animate()?.scaleX(1f)?.scaleY(1f)?.setStartDelay(0)?.setDuration(100)?.start()
         hot?.animate()?.scaleX(1.18f)?.scaleY(1.18f)?.setStartDelay(0)?.setDuration(100)?.start()
         menuHot = hot
     }
 
-    /** 손을 뗀 곳이 동그라미 위면 그것을 고르고, 아니면 메뉴를 펼친 채로 두어 눌러 고르게 함 */
-    private fun releaseMenu(rawX: Float, rawY: Float) {
+    /**
+     * 꾹 누른 자리(버튼 위)에서 손을 떼면 메뉴를 펼친 채로 두어 동그라미를 눌러 고르게 함.
+     * 손가락을 동그라미까지 끌고 가서 뗐을 때만 바로 고름
+     */
+    private fun releaseMenu(rawX: Float, rawY: Float, movedAway: Boolean) {
+        menuHot?.animate()?.scaleX(1f)?.scaleY(1f)?.setStartDelay(0)?.setDuration(100)?.start()
         menuHot = null
-        itemAt(rawX, rawY)?.second?.invoke()
+        if (movedAway) itemAt(rawX, rawY)?.second?.invoke()
     }
 
     private fun closeMenu() {

@@ -10,6 +10,11 @@ on:
 permissions:
   contents: write
 
+# 두 브랜치가 동시에 플레이에 올리면 충돌하므로 빌드를 한 번에 하나씩
+concurrency:
+  group: talk-helper-release
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-latest

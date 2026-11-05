@@ -240,7 +240,7 @@ class HelperActivity : Activity() {
             textSize = 18f * prefs.textScale
             maxLines = 4
             // 고치려고 누르면 자동 전송을 멈춤
-            setOnTouchListener { _, e -> if (e.action == MotionEvent.ACTION_DOWN) stopCountdown(); false }
+            setOnTouchListener { _, e -> if (e.action == MotionEvent.ACTION_DOWN) { stopConfirm(); stopCountdown() }; false }
         }
         resultBox.add(resultEdit, 4)
         val sendRow = Ui.hbox(ctx)
@@ -250,7 +250,7 @@ class HelperActivity : Activity() {
         sendRow.add(sendButton, weight = 1.4f)
         resultBox.add(sendRow, 8)
         againRow = Ui.hbox(ctx)
-        againRow.add(small("🎤 다시 말하기", sp = 14f) { stopCountdown(); resultBox.visibility = View.GONE; toggleMic() })
+        againRow.add(small("🎤 다시 말하기", sp = 14f) { stopConfirm(); stopCountdown(); resultBox.visibility = View.GONE; toggleMic() })
         againRow.add(small("🔄 다시 다듬기", sp = 14f) { stopCountdown(); if (lastSpoken.isNotBlank()) rewrite(lastSpoken) })
         resultBox.add(againRow, 6)
         card.add(resultBox, 8)
@@ -302,7 +302,7 @@ class HelperActivity : Activity() {
         paintSendModes()
         Toast.makeText(this, m.desc, Toast.LENGTH_SHORT).show()
         // 3초 카운트다운 중에 '확인 후'로 바꾸면 멈춤
-        if (m == SendMode.CONFIRM) stopCountdown()
+        if (m == SendMode.CONFIRM || m == SendMode.VOICE) stopCountdown()
     }
 
     private fun paintSendModes() = sendModeButtons.forEach { (m, b) ->
@@ -576,16 +576,88 @@ class HelperActivity : Activity() {
         })
     }
 
-    private fun speak(text: String) {
-        if (text.isBlank()) return
+    /** 읽어 주기. [then] 은 다 읽은 뒤 (읽지 못하면 바로) 실행 */
+    private fun speak(text: String, then: (() -> Unit)? = null) {
+        if (text.isBlank()) { then?.invoke(); return }
+        fun say(t: android.speech.tts.TextToSpeech) {
+            t.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
+                override fun onStart(id: String?) {}
+                override fun onDone(id: String?) { if (id == "say") Bg.main.post { then?.invoke() } }
+                @Deprecated("old") override fun onError(id: String?) { Bg.main.post { then?.invoke() } }
+            })
+            if (t.speak(text.take(3900), android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "say") != android.speech.tts.TextToSpeech.SUCCESS) then?.invoke()
+        }
         val t = tts ?: android.speech.tts.TextToSpeech(applicationContext) { st ->
-            if (st == android.speech.tts.TextToSpeech.SUCCESS) {
-                tts?.language = java.util.Locale.KOREAN
-                tts?.setSpeechRate(0.9f)
-                tts?.speak(text.take(3900), android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "ans")
-            }
+            val ready = tts
+            if (st == android.speech.tts.TextToSpeech.SUCCESS && ready != null) {
+                ready.language = java.util.Locale.KOREAN
+                ready.setSpeechRate(0.9f)
+                say(ready)
+            } else then?.invoke()
         }.also { tts = it; return }
-        t.speak(text.take(3900), android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "ans")
+        say(t)
+    }
+
+    // ───────── 듣고 확인 (읽어 드리고 말로 대답) ─────────
+
+    private var confirmRec: SpeechRecognizer? = null
+    /** 읽는 도중 직접 고치거나 버튼을 누르면 이어서 듣지 않도록 */
+    private var confirmId = 0
+
+    private fun readAndConfirm(text: String) {
+        stopCountdown()
+        resultTitle.text = "🔊 읽어 드릴게요. 듣고 \"보내\" 또는 \"다시\"라고 말씀하세요"
+        val id = ++confirmId
+        speak("이렇게 보낼까요? $text") {
+            if (id == confirmId && !isFinishing && resultBox.visibility == View.VISIBLE) listenConfirm(0)
+        }
+    }
+
+    private fun listenConfirm(attempt: Int) {
+        if (!hasMic() || !SpeechRecognizer.isRecognitionAvailable(this)) return
+        stopConfirm()
+        resultTitle.text = "🎤 듣고 있어요…  \"보내\" · \"다시\" · \"취소\""
+        val rec = SpeechRecognizer.createSpeechRecognizer(this)
+        confirmRec = rec
+        rec.setRecognitionListener(object : android.speech.RecognitionListener {
+            override fun onReadyForSpeech(p: Bundle?) {}
+            override fun onBeginningOfSpeech() {}
+            override fun onRmsChanged(v: Float) {}
+            override fun onBufferReceived(b: ByteArray?) {}
+            override fun onEndOfSpeech() {}
+            override fun onPartialResults(b: Bundle?) {}
+            override fun onEvent(t: Int, b: Bundle?) {}
+            override fun onError(error: Int) {
+                if (confirmRec !== rec) return
+                stopConfirm()
+                if (attempt < 1) listenConfirm(attempt + 1)
+                else resultTitle.text = "말씀을 듣지 못했어요. 아래 버튼으로 골라 주세요"
+            }
+            override fun onResults(b: Bundle?) {
+                if (confirmRec !== rec) return
+                stopConfirm()
+                val said = b?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
+                when (kr.yunho.talkhelper.core.VoiceAnswer.of(said)) {
+                    kr.yunho.talkhelper.core.VoiceAnswer.SEND -> send()
+                    kr.yunho.talkhelper.core.VoiceAnswer.AGAIN -> { resultBox.visibility = View.GONE; askMode = false; toggleMic() }
+                    kr.yunho.talkhelper.core.VoiceAnswer.CANCEL -> { stopCountdown(); resultTitle.text = "보내지 않았어요. 눌러서 고치거나 버튼을 골라 주세요" }
+                    kr.yunho.talkhelper.core.VoiceAnswer.UNKNOWN ->
+                        if (attempt < 1) listenConfirm(attempt + 1)
+                        else resultTitle.text = "\"$said\" — 잘 모르겠어요. 아래 버튼으로 골라 주세요"
+                }
+            }
+        })
+        rec.startListening(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+            .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            .putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ko-KR")
+            .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1))
+    }
+
+    private fun stopConfirm() {
+        confirmId++
+        tts?.stop()
+        confirmRec?.let { runCatching { it.cancel(); it.destroy() } }
+        confirmRec = null
     }
 
     private fun rewrite(spoken: String) {
@@ -608,6 +680,7 @@ class HelperActivity : Activity() {
                     SendMode.INSTANT -> send()
                     SendMode.COUNTDOWN -> startCountdown()
                     SendMode.CONFIRM -> stopCountdown()
+                    SendMode.VOICE -> readAndConfirm(text)
                 }
                 resultBox.post { (resultBox.parent?.parent as? ScrollView)?.smoothScrollTo(0, resultBox.bottom) }
             }.onFailure { showStatus((it as? HelperException)?.message ?: "문제가 생겼어요: ${it.message}", Ui.RED) }
@@ -637,6 +710,7 @@ class HelperActivity : Activity() {
 
     private fun send() {
         Bg.main.removeCallbacks(tick)
+        stopConfirm()
         val text = resultEdit.text.toString().trim()
         if (text.isEmpty()) return
         val app = applicationContext
@@ -663,6 +737,7 @@ class HelperActivity : Activity() {
 
     override fun onDestroy() {
         Bg.main.removeCallbacks(tick)
+        stopConfirm()
         tts?.shutdown(); tts = null
         whisperRec?.stop()
         whisperRec = null

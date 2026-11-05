@@ -125,7 +125,7 @@ class AskActivity : Activity(), TextToSpeech.OnInitListener {
             val saved = r.getOrNull()
             if (saved == null) {
                 Prefs(this).logExport("저장 실패: ${r.exceptionOrNull()?.let { it.javaClass.simpleName + " " + it.message } ?: "대화 글이 비어 있음"}")
-                AlertDialog.Builder(this).setMessage("대화 파일을 읽지 못했어요.\n카톡에서 '대화 내용 내보내기' → '텍스트만 보내기'로 다시 보내 주세요.")
+                AlertDialog.Builder(this).setMessage("카톡 대화 파일만 받을 수 있어요.\n카톡 대화방 ☰ → ⚙ → '대화 내용 내보내기' → '텍스트 메시지만'으로 보내 주세요.")
                     .setPositiveButton("확인", null).show()
                 return@run
             }

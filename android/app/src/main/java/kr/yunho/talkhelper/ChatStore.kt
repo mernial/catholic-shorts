@@ -107,7 +107,8 @@ object ChatStore {
     }
 
     private fun finish(c: Context, text: String?, incoming: File, photos: Int): Saved? {
-        if (text.isNullOrBlank()) { incoming.deleteRecursively(); return null }
+        // 카톡 대화가 아니면(다른 앱에서 사진·문서를 잘못 보낸 경우) 저장하지 않음
+        if (text.isNullOrBlank() || !looksLikeKakaoChat(text)) { incoming.deleteRecursively(); return null }
         val room = safe(ChatSearch.roomName(text) ?: "내보낸 대화")
         File(dir(c), "$room.txt").writeText(text)
         val media = mediaDir(c, room)
@@ -115,6 +116,11 @@ object ChatStore {
         else incoming.deleteRecursively()   // 글만 다시 내보낸 경우 전에 받은 사진은 그대로 둠
         return Saved(room, photos)
     }
+
+    /** 내보낸 카톡 대화인지: 첫머리에 '카카오톡 대화' 표시가 있거나, 앞쪽에 '날짜, 이름 : 메시지' 줄이 있음 */
+    fun looksLikeKakaoChat(text: String): Boolean =
+        ChatSearch.roomName(text) != null ||
+            text.lineSequence().take(300).count { MyStyle.parse(it) != null } >= 2
 
     fun hasPhotos(c: Context, room: String?) = room != null && (mediaDir(c, room).list()?.isNotEmpty() == true)
 

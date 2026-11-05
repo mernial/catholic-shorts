@@ -50,6 +50,9 @@ class AskActivity : Activity(), TextToSpeech.OnInitListener {
     private lateinit var answer: TextView
     private lateinit var status: TextView
     private lateinit var photoBox: LinearLayout
+    // 저장하거나 찾는 동안 화면 가운데에 크게 보이는 '진행 중' 표시
+    private lateinit var busy: LinearLayout
+    private lateinit var busyText: TextView
     private var tts: TextToSpeech? = null
     private var ttsReady = false
 
@@ -57,7 +60,23 @@ class AskActivity : Activity(), TextToSpeech.OnInitListener {
         super.onCreate(savedInstanceState)
         tts = TextToSpeech(this, this)
         body = Ui.vbox(this, 18)
-        setContentView(ScrollView(this).apply { fitsSystemWindows = true; addView(body) })
+        busyText = Ui.text(this, "", 22f, bold = true).apply { gravity = android.view.Gravity.CENTER }
+        busy = Ui.vbox(this, 28).apply {
+            gravity = android.view.Gravity.CENTER
+            setBackgroundColor(0xEEF7F4EE.toInt())
+            isClickable = true   // 진행 중에는 뒤 화면이 눌리지 않게
+            visibility = View.GONE
+            addView(android.widget.ProgressBar(this@AskActivity).apply {
+                scaleX = 1.6f; scaleY = 1.6f
+            })
+            add(busyText, 28)
+        }
+        setContentView(android.widget.FrameLayout(this).apply {
+            fitsSystemWindows = true
+            addView(ScrollView(this@AskActivity).apply { addView(body) })
+            addView(busy, android.widget.FrameLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT))
+        })
         handle(intent)
     }
 
@@ -84,7 +103,7 @@ class AskActivity : Activity(), TextToSpeech.OnInitListener {
             val uri: Uri? = if (Build.VERSION.SDK_INT >= 33) i.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
             else i.getParcelableExtra(Intent.EXTRA_STREAM)
             val text = i.getStringExtra(Intent.EXTRA_TEXT)
-            Toast.makeText(this, "대화를 저장하는 중… 잠시만요", Toast.LENGTH_SHORT).show()
+            showBusy("💬 대화를 저장하는 중이에요…\n\n내보낸 대화는 이 휴대폰 안에만 보관돼요")
             importChat {
                 if (uri != null) ChatStore.importStream(this) { contentResolver.openInputStream(uri) }
                 else text?.let { ChatStore.importText(this, it) }
@@ -98,6 +117,7 @@ class AskActivity : Activity(), TextToSpeech.OnInitListener {
     private fun importChat(work: () -> ChatStore.Saved?) {
         Bg.run(work) { r ->
             if (isFinishing) return@run
+            hideBusy()
             val saved = r.getOrNull()
             if (saved == null) {
                 Toast.makeText(this, "대화 파일을 읽지 못했어요. 카톡에서 다시 내보내 주세요.", Toast.LENGTH_LONG).show()
@@ -233,7 +253,7 @@ class AskActivity : Activity(), TextToSpeech.OnInitListener {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == REQ_FOLDER && resultCode == RESULT_OK) {
             val tree = data?.data ?: return
-            Toast.makeText(this, "대화와 사진을 가져오는 중… 사진이 많으면 조금 걸려요", Toast.LENGTH_LONG).show()
+            showBusy("📁 대화와 사진을 가져오는 중이에요…\n사진이 많으면 조금 걸려요")
             importChat { ChatStore.importTree(this, tree) }
             return
         }
@@ -256,13 +276,12 @@ class AskActivity : Activity(), TextToSpeech.OnInitListener {
         val claude = ClaudeProvider.get(this)
         if (claude == null) { Toast.makeText(this, "먼저 앱 설정을 마쳐 주세요.", Toast.LENGTH_LONG).show(); return }
         val room = selected?.takeIf { it != SCREEN }
-        status.text = "대화에서 찾는 중… 잠시만요"
-        status.visibility = View.VISIBLE
+        showBusy("🔎 ${if (room != null) "'$room' 대화에서" else "대화에서"} 찾고 있어요…\n\n물어본 것: $q\n\n어떻게 진행되고 무엇이 정해졌는지 정리하는 중이에요")
         answer.visibility = View.GONE
         photoBox.visibility = View.GONE
         Bg.run({ claude.answer(q, chat, room) }) { r ->
             if (isFinishing) return@run
-            status.visibility = View.GONE
+            hideBusy()
             val text = r.map { ChatSearch.splitAnswer(it).first }
                 .getOrElse { (it as? HelperException)?.message ?: "문제가 생겼어요: ${it.message}" }
             showPhotos(room, r.getOrNull())
@@ -290,6 +309,13 @@ class AskActivity : Activity(), TextToSpeech.OnInitListener {
         }
         photoBox.visibility = View.VISIBLE
     }
+
+    private fun showBusy(msg: String) {
+        busyText.text = msg
+        busy.visibility = View.VISIBLE
+    }
+
+    private fun hideBusy() { busy.visibility = View.GONE }
 
     private fun speak(text: String) {
         if (!ttsReady || text.isBlank()) return

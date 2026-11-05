@@ -5,6 +5,7 @@ import android.annotation.SuppressLint
 import android.content.Intent
 import android.graphics.PixelFormat
 import android.graphics.Rect
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -230,7 +231,8 @@ class KakaoAccessibilityService : AccessibilityService() {
             elevation = Ui.dp(this@KakaoAccessibilityService, 6).toFloat()
             contentDescription = getString(R.string.app_name) + " 열기"
         }
-        val dm = resources.displayMetrics
+        // 지금 화면 크기 (폴드폰은 펼침·접힘에 따라 바뀜)
+        val (sw, sh) = screenSize()
         val prefs = Prefs(this)
         val lp = WindowManager.LayoutParams(
             size, size,
@@ -239,8 +241,10 @@ class KakaoAccessibilityService : AccessibilityService() {
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = prefs.bubbleX.takeIf { it >= 0 } ?: (dm.widthPixels - size - Ui.dp(this@KakaoAccessibilityService, 12))
-            y = prefs.bubbleY.takeIf { it >= 0 } ?: (dm.heightPixels * 0.55).toInt()
+            val margin = Ui.dp(this@KakaoAccessibilityService, 12)
+            // 저장된 위치가 지금 화면 밖이면(큰 화면에서 옮겨 둔 위치 등) 화면 안으로 끌어옴
+            x = (prefs.bubbleX.takeIf { it >= 0 } ?: (sw - size - margin)).coerceIn(0, maxOf(0, sw - size))
+            y = (prefs.bubbleY.takeIf { it >= 0 } ?: (sh * 0.55).toInt()).coerceIn(0, maxOf(0, sh - size))
         }
 
         var downX = 0f; var downY = 0f; var startX = 0; var startY = 0; var dragged = false
@@ -251,8 +255,8 @@ class KakaoAccessibilityService : AccessibilityService() {
                     val dx = e.rawX - downX; val dy = e.rawY - downY
                     if (dragged || Math.abs(dx) > 15 || Math.abs(dy) > 15) {
                         dragged = true
-                        lp.x = (startX + dx).toInt().coerceIn(0, dm.widthPixels - size)
-                        lp.y = (startY + dy).toInt().coerceIn(0, dm.heightPixels - size)
+                        lp.x = (startX + dx).toInt().coerceIn(0, sw - size)
+                        lp.y = (startY + dy).toInt().coerceIn(0, sh - size)
                         runCatching { wm.updateViewLayout(v, lp) }
                     }
                     true
@@ -265,6 +269,20 @@ class KakaoAccessibilityService : AccessibilityService() {
             }
         }
         runCatching { wm.addView(v, lp); bubble = v; bubbleParams = lp }
+    }
+
+    /** 지금 화면의 가로·세로 픽셀 */
+    private fun screenSize(): Pair<Int, Int> =
+        if (Build.VERSION.SDK_INT >= 30) wm.currentWindowMetrics.bounds.let { it.width() to it.height() }
+        else resources.displayMetrics.let { it.widthPixels to it.heightPixels }
+
+    /** 폴드폰을 펼치거나 접는 등 화면이 바뀌면 버튼을 새 화면 안에 다시 그림 */
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (bubble != null) {
+            removeBubble()
+            handler.postDelayed({ updateBubble() }, 300)
+        }
     }
 
     private fun removeBubble() {

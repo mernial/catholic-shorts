@@ -100,6 +100,7 @@ class KakaoAccessibilityService : AccessibilityService() {
     }
 
     override fun onDestroy() {
+        removeCover()
         removeBubble()
         instance = null
         super.onDestroy()
@@ -161,6 +162,57 @@ class KakaoAccessibilityService : AccessibilityService() {
     }
 
     @Volatile private var collecting = false
+    @Volatile private var stopCollect = false
+
+    // 넘기는 동안 화면을 덮는 안내 (대화가 휙휙 넘어가는 모습을 보이지 않게)
+    private var cover: android.widget.LinearLayout? = null
+    private var coverText: TextView? = null
+
+    private fun showCover() {
+        if (cover != null) return
+        val box = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setBackgroundColor(android.graphics.Color.parseColor("#F21C1C1F"))
+            isClickable = true   // 덮개 뒤 카톡이 눌리지 않게
+            val p = Ui.dp(this@KakaoAccessibilityService, 32); setPadding(p, p, p, p)
+        }
+        box.addView(TextView(this).apply {
+            text = "🔎"
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 48f)
+            gravity = Gravity.CENTER
+        })
+        coverText = TextView(this).apply {
+            text = "예전 대화에서 찾고 있어요…"
+            setTextColor(android.graphics.Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
+            gravity = Gravity.CENTER
+            setPadding(0, Ui.dp(this@KakaoAccessibilityService, 16), 0, Ui.dp(this@KakaoAccessibilityService, 32))
+        }
+        box.addView(coverText)
+        box.addView(TextView(this).apply {
+            text = "그만 찾고 지금까지 본 데서 찾기"
+            setTextColor(CHARCOAL_BOTTOM)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 17f)
+            gravity = Gravity.CENTER
+            val p = Ui.dp(this@KakaoAccessibilityService, 14); setPadding(p * 2, p, p * 2, p)
+            background = Ui.rounded(this@KakaoAccessibilityService, android.graphics.Color.WHITE, 24)
+            setOnClickListener { stopCollect = true; coverText?.text = "지금까지 본 대화로 찾을게요…" }
+        })
+        val lp = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT,
+        ).apply { gravity = Gravity.TOP or Gravity.START }
+        runCatching { wm.addView(box, lp); cover = box }
+    }
+
+    private fun removeCover() {
+        cover?.let { runCatching { wm.removeView(it) } }
+        cover = null
+        coverText = null
+    }
 
     /**
      * 사용자가 '찾기'를 했을 때, 지금 대화방을 위로 넘기며 예전 대화 글을 모음.
@@ -170,6 +222,8 @@ class KakaoAccessibilityService : AccessibilityService() {
     fun collectHistory(maxPages: Int = 40, maxMs: Long = 15_000, progress: (Int) -> Unit, done: (List<String>) -> Unit) {
         if (collecting) return
         collecting = true
+        stopCollect = false
+        showCover()
         val start = System.currentTimeMillis()
         var acc: List<String> = emptyList()
         var pages = 0
@@ -181,6 +235,7 @@ class KakaoAccessibilityService : AccessibilityService() {
                 val list = chatList(kakaoRoot())
                 if (left <= 0 || list == null || !list.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)) {
                     collecting = false
+                    removeCover()
                     done(acc)
                     return
                 }
@@ -198,7 +253,9 @@ class KakaoAccessibilityService : AccessibilityService() {
             acc = kr.yunho.talkhelper.core.History.prepend(acc, page)
             pages++
             progress(pages)
-            if (top || pages >= maxPages || System.currentTimeMillis() - start > maxMs) { finish(); return }
+            coverText?.text = "예전 대화에서 찾고 있어요…\n(${pages}쪽 살펴봄)"
+            if (stopCollect) coverText?.text = "지금까지 본 대화로 찾을게요…"
+            if (top || stopCollect || pages >= maxPages || System.currentTimeMillis() - start > maxMs) { finish(); return }
             if (!list.performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)) { finish(); return }
             scrolled++
             handler.postDelayed({ step() }, 450)   // 예전 대화가 그려질 때까지 잠깐 기다림

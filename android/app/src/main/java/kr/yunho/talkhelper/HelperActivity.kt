@@ -374,7 +374,7 @@ class HelperActivity : Activity() {
         heardView.visibility = View.VISIBLE
         showStatus(null)
 
-        val rec = SilenceRecorder()
+        val rec = SilenceRecorder(nearOnly = prefs.nearVoiceOnly)
         whisperRec = rec
         rec.start(onTick = { secs, speaking ->
             if (listening && whisperRec === rec) heardView.text = if (speaking) "🎙️ 듣는 중… ${secs}초" else "듣고 있어요…"
@@ -382,7 +382,11 @@ class HelperActivity : Activity() {
             if (whisperRec !== rec || isFinishing) return@start
             whisperRec = null
             listening = false
-            if (samples == null) { resetMic(); heardView.text = "말씀을 듣지 못했어요. 다시 눌러 주세요."; return@start }
+            if (samples == null) {
+                resetMic()
+                heardView.text = if (prefs.nearVoiceOnly) "말씀을 듣지 못했어요. 휴대폰을 입 가까이 대고 다시 눌러 주세요." else "말씀을 듣지 못했어요. 다시 눌러 주세요."
+                return@start
+            }
             micButton.text = "✍️ 받아쓰는 중…"
             micButton.isEnabled = false
             heardView.text = "받아쓰는 중… 몇 초 걸려요"

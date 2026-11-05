@@ -40,6 +40,11 @@ class Prefs(ctx: Context) {
         get() = sp.getBoolean("carefulRewrite", false)
         set(v) = sp.edit().putBoolean("carefulRewrite", v).apply()
 
+    /** 고급 받아쓰기에서 휴대폰 가까이의 목소리만 받아쓰기 (TV·옆 사람 소리는 지움) */
+    var nearVoiceOnly: Boolean
+        get() = sp.getBoolean("nearVoiceOnly", true)
+        set(v) = sp.edit().putBoolean("nearVoiceOnly", v).apply()
+
     /** 고급 받아쓰기(Whisper, 휴대폰 안에서) 사용 */
     var whisperOn: Boolean
         get() = sp.getBoolean("whisperOn", false)

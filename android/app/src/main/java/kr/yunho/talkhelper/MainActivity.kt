@@ -436,6 +436,14 @@ class MainActivity : Activity() {
         }
         box.add(action, 8)
         box.add(use, 6)
+        box.add(CheckBox(this).apply {
+            text = "가까운 목소리만 듣기 (TV·옆 사람 소리 무시)"
+            textSize = 16f * p.textScale
+            setTextColor(Ui.BROWN)
+            isChecked = p.nearVoiceOnly
+            setOnCheckedChangeListener { _, on -> p.nearVoiceOnly = on }
+        }, 4)
+        box.add(Ui.text(this, "휴대폰을 입 가까이(한 뼘 안) 대고 말씀하세요. 목소리가 작아 잘 안 들리면 끄세요.", 13f, color = Ui.MUTED), 2)
         refresh()
     }
 

@@ -39,6 +39,14 @@
             android:taskAffinity="kr.yunho.talkhelper.helper"
             android:theme="@style/Helper" />
 
+        <!-- 카톡 위 간단 설정 (도우미 버튼을 꾹 눌러 ⚙️) -->
+        <activity
+            android:name=".QuickSettingsActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity="kr.yunho.talkhelper.helper"
+            android:theme="@style/Helper" />
+
         <!-- 대화에서 찾기: 카톡 '대화 내용 내보내기'에서 이 앱으로 공유받음 -->
         <activity
             android:name=".AskActivity"

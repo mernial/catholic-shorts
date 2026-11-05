@@ -391,6 +391,11 @@ class KakaoAccessibilityService : AccessibilityService() {
         startActivity(intent)
     }
 
+    private fun openQuickSettings() {
+        closeMenu()
+        startActivity(Intent(this, QuickSettingsActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
+
     // ───────── 꾹 누르면 버튼 둘레에 펼쳐지는 동그라미 메뉴 ─────────
 
     private var menu: FrameLayout? = null
@@ -418,10 +423,11 @@ class KakaoAccessibilityService : AccessibilityService() {
             PixelFormat.TRANSLUCENT,
         ).apply { gravity = Gravity.TOP or Gravity.START }
 
-        // 말투 4가지 + 찾기. 지금 고른 말투는 노란색
+        // 말투 4가지 + 찾기 + 설정. 지금 고른 말투는 노란색
         val entries: List<Triple<String, Boolean, () -> Unit>> =
             Mode.values().map { m -> Triple("${m.emoji}\n${m.label}", m == prefs.mode) { prefs.mode = m; openHelper() } } +
-                Triple("🔎\n찾기", false) { openHelper(ask = true) }
+                Triple("🔎\n찾기", false) { openHelper(ask = true) } +
+                Triple("⚙️\n설정", false) { openQuickSettings() }
         val size = Ui.dp(this, 78)
         val items = entries.map { (label, on, act) ->
             val item = TextView(this).apply {
@@ -451,8 +457,8 @@ class KakaoAccessibilityService : AccessibilityService() {
             val cy = bl[1] + b.height / 2f - o[1]
             val w = root.width; val h = root.height
             val toward = Math.atan2((h / 2f - cy).toDouble(), (w / 2f - cx).toDouble())
-            val spread = Math.toRadians(160.0)
-            val r = Ui.dp(this, 132)
+            val spread = Math.toRadians(180.0)
+            val r = Ui.dp(this, 140)
             items.forEachIndexed { i, (v, _) ->
                 val a = toward - spread / 2 + spread * i / (items.size - 1)
                 val x = (cx + r * Math.cos(a) - size / 2f).coerceIn(0f, (w - size).toFloat())

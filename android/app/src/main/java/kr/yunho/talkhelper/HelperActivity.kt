@@ -586,7 +586,7 @@ class HelperActivity : Activity() {
         resultBox.visibility = View.GONE
         val m = mode
         Bg.run({
-            claude.rewrite(m, spoken, screenText, prefs.myName, prefs.myRole)
+            claude.rewrite(m, spoken, screenText, prefs.myName, prefs.myRole, prefs.carefulRewrite)
                 .also { claude.lastUsage?.let { u -> prefs.lastUsage = u.describe() } }
         }) { r ->
             if (isFinishing) return@run

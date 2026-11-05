@@ -63,7 +63,7 @@ class ClaudeTest {
     fun rewriteRequestAndResult() {
         FakeServer().use { srv ->
             val c = Claude("sk-test", srv.url)
-            val out = c.rewrite(Mode.BUSINESS, "야 이거 토요일에 하자고 해", screen, "윤호요셉", "본당 주임신부")
+            val out = c.rewrite(Mode.BUSINESS, "야 이거 토요일에 하자고 해", screen, "윤호요셉", "본당 주임신부", careful = true)
             assertEquals("토요일 저녁 7시에 뵙겠습니다.", out)
             assertTrue(body.contains("\"model\":\"claude-sonnet-5-5\""))
             assertTrue(body.contains("\"fallbacks\":\"default\""))
@@ -79,6 +79,19 @@ class ClaudeTest {
             assertEquals(c.lastUsage?.input, 10L)
             assertTrue(body.contains("업무 연락"))
             assertTrue(body.contains("해당 건은 토요일에 진행하겠습니다."))
+        }
+    }
+
+    @Test
+    fun rewriteDefaultsToHaikuWithoutFallback() {
+        FakeServer().use { srv ->
+            val c = Claude("sk-test", srv.url)
+            c.rewrite(Mode.POLITE, "알았어", "가".repeat(5000), "", "")
+            assertTrue(body.contains("\"model\":\"claude-haiku-5-5\""))
+            assertTrue(!body.contains("fallbacks"))
+            // 카톡 화면 글은 마지막 1,200자만 보냄
+            assertTrue(body.contains("가".repeat(Prompts.SCREEN_CHARS)))
+            assertTrue(!body.contains("가".repeat(Prompts.SCREEN_CHARS + 1)))
         }
     }
 

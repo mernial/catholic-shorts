@@ -1,6 +1,9 @@
 package kr.yunho.talkhelper.core
 
 object Prompts {
+    /** 답장 다듬을 때 보내는 카톡 화면 글 최대 글자 수 (최근 대화 몇 마디면 충분) */
+    const val SCREEN_CHARS = 1_200
+
 
     /**
      * 시스템 지침. 프롬프트 캐싱을 위해 '말투 모드'만으로 정해지도록 함
@@ -56,7 +59,7 @@ ${mode.examples.lines().joinToString("\n") { "  $it" }}
                 .append("</보내는사람>\n\n")
         }
         if (!screenText.isNullOrBlank()) {
-            append("<카톡화면에보이는글>\n").append(screenText.takeLast(2000)).append("\n</카톡화면에보이는글>\n\n")
+            append("<카톡화면에보이는글>\n").append(screenText.takeLast(SCREEN_CHARS)).append("\n</카톡화면에보이는글>\n\n")
         }
         append("<내가말한것>\n").append(spoken.trim()).append("\n</내가말한것>\n\n")
         append("이 말을 '${mode.label}' 말투의 카톡 메시지로 바꿔 주세요.")

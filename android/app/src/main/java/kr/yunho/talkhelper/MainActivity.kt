@@ -333,6 +333,12 @@ class MainActivity : Activity() {
         body.add(sendGroup, 6)
         body.add(pressSend, 12)
 
+        // 다듬기 품질
+        body.add(Ui.text(this, "답장 다듬기 품질", 16f, bold = true), 16)
+        val careful = check("섬세하게 다듬기 (한 번에 약 10원, 기본은 약 1원)", p.carefulRewrite)
+        body.add(careful, 6)
+        body.add(Ui.text(this, "기본으로도 충분히 자연스럽습니다. 어른께 드리는 글처럼 존댓말이 아주 중요할 때만 켜세요.", 13f, color = Ui.MUTED), 4)
+
         whisperSection(p)
 
         body.add(Ui.button(this, "저장", sp = 22f) {
@@ -341,6 +347,7 @@ class MainActivity : Activity() {
             p.myRole = role.text.toString().trim()
             SendMode.values().getOrNull(sendGroup.checkedRadioButtonId - 2000)?.let { p.sendMode = it }
             p.autoPressSend = pressSend.isChecked
+            p.carefulRewrite = careful.isChecked
             Toast.makeText(this, "저장했습니다", Toast.LENGTH_SHORT).show()
             showAdvanced = false
             render()

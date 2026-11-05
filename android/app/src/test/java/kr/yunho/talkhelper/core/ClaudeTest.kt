@@ -83,6 +83,19 @@ class ClaudeTest {
     }
 
     @Test
+    fun searchUsesHaikuWithoutFallback() {
+        FakeServer().use { srv ->
+            val c = Claude("sk-test", srv.url)
+            reply = ok("토요일입니다.", "end_turn")
+            val out = c.answer("성가대 연습 언제?", "김미카엘: 성가대 연습은 토요일", "청년부")
+            assertEquals("토요일입니다.", out)
+            assertTrue(body.contains("\"model\":\"claude-haiku-5-5\""))
+            assertTrue(!body.contains("fallbacks"))
+            assertTrue(body.contains("<질문>성가대 연습 언제?</질문>"))
+        }
+    }
+
+    @Test
     fun errorsBecomeKoreanMessages() {
         FakeServer().use { srv ->
             val c = Claude("sk-test", srv.url)

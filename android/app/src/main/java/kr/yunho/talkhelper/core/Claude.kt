@@ -37,17 +37,17 @@ class Claude(apiKey: String, baseUrl: String? = null) {
 
     /** 카톡 대화에서 [question] 에 대한 답 찾기. [chat] 이 길면 관련 부분만 골라 보냄 */
     fun answer(question: String, chat: String, room: String?): String =
-        ask(Prompts.ASK_SYSTEM, Prompts.askUser(question, room, ChatSearch.excerpt(chat, question))).trim()
+        ask(Prompts.ASK_SYSTEM, Prompts.askUser(question, room, ChatSearch.excerpt(chat, question)), SEARCH_MODEL).trim()
 
-    private fun ask(system: String, user: String): String {
-        val params = MessageCreateParams.builder()
-            .model(MODEL)
+    private fun ask(system: String, user: String, model: String = MODEL): String {
+        val builder = MessageCreateParams.builder()
+            .model(model)
             .maxTokens(4000)
-            // 짧은 문장 다듬기라 effort 를 낮춰 속도와 요금을 줄임
+            // 짧은 작업이라 effort 를 낮춰 속도와 요금을 줄임
             .outputConfig(BetaOutputConfig.builder().effort(BetaOutputConfig.Effort.LOW).build())
-            // 안전 분류기가 거절하면 서버가 알맞은 다른 모델로 자동 재시도
-            .addBeta("server-side-fallback-2026-07-01")
-            .fallbacksDefault()
+        // 안전 분류기가 거절하면 서버가 알맞은 다른 모델로 자동 재시도 (Haiku 는 지원하지 않음)
+        if (model != SEARCH_MODEL) builder.addBeta("server-side-fallback-2026-07-01").fallbacksDefault()
+        val params = builder
             // 매번 같은 시스템 지침만 캐시 (5분 동안 다시 쓰면 그 부분 요금이 1/10).
             // 매번 바뀌는 카톡 화면 글과 말한 내용은 캐시하지 않음
             .systemOfBetaTextBlockParams(listOf(
@@ -103,5 +103,7 @@ class Claude(apiKey: String, baseUrl: String? = null) {
     companion object {
         // 뉘앙스·존댓말을 더 섬세하게 다루는 중간 등급 (한 번 다듬는 데 약 10원)
         const val MODEL = "claude-sonnet-5-5"
+        // 대화에서 찾기: 찾아서 옮겨 주는 일이라 가장 저렴한 모델로 충분 (1회 1~4원)
+        const val SEARCH_MODEL = "claude-haiku-5-5"
     }
 }

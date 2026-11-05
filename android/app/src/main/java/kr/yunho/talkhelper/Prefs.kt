@@ -44,6 +44,11 @@ class Prefs(ctx: Context) {
         get() = runCatching { Mode.valueOf(sp.getString("mode", Mode.POLITE.name)!!) }.getOrDefault(Mode.POLITE)
         set(v) = sp.edit().putString("mode", v.name).apply()
 
+    /** 도우미 버튼 진단 기록 */
+    var bubbleDiag: String
+        get() = sp.getString("bubbleDiag", "") ?: ""
+        set(v) = sp.edit().putString("bubbleDiag", v).apply()
+
     /** 마지막 다듬기 요청의 토큰 사용량 (캐시 확인용) */
     var lastUsage: String
         get() = sp.getString("lastUsage", "") ?: ""

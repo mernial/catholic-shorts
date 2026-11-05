@@ -341,6 +341,17 @@ class MainActivity : Activity() {
             render()
         }, 18)
         body.add(Ui.button(this, "돌아가기", Ui.CARD, sp = 16f) { showAdvanced = false; render() }, 8)
+        // 도우미 버튼이 안 보일 때 원인 확인용
+        body.add(Ui.text(this, "도우미 버튼 상태", 14f, bold = true, color = Ui.MUTED), 24)
+        body.add(Ui.text(this,
+            (if (KakaoAccessibilityService.instance != null) "접근성 서비스: 연결됨\n" else "접근성 서비스: 연결 안 됨 (접근성을 껐다 켜 주세요)\n") +
+                p.bubbleDiag.ifBlank { "기록 없음 (카톡을 한 번 열었다가 돌아와 보세요)" },
+            13f, color = Ui.MUTED).apply { setTextIsSelectable(true) }, 4)
+        body.add(Ui.button(this, "도우미 버튼 위치 초기화", Ui.CARD, sp = 15f) {
+            p.bubbleX = -1; p.bubbleY = -1
+            KakaoAccessibilityService.instance?.redrawBubble()
+            Toast.makeText(this, "버튼을 오른쪽 가운데로 되돌렸어요. 카톡을 다시 열어 보세요.", Toast.LENGTH_LONG).show()
+        }, 6)
         p.lastUsage.takeIf { it.isNotBlank() }?.let {
             body.add(Ui.text(this, "마지막 다듬기 사용량", 14f, bold = true, color = Ui.MUTED), 24)
             body.add(Ui.text(this, it, 13f, color = Ui.MUTED), 4)

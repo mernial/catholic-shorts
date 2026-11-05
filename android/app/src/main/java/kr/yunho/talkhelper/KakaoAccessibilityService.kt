@@ -46,10 +46,36 @@ class KakaoAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         instance = this
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
+        diag("서비스 연결됨")
         updateBubble()
     }
 
+    // ───────── 진단 기록 (설정 화면 '도우미 버튼 상태'에 보임) ─────────
+
+    private var lastDiag = ""
+    /** 마지막으로 앞에 나온 앱 (창 목록을 못 받는 기기를 위한 보조 정보) */
+    private var lastPkg = ""
+
+    private fun diag(s: String) {
+        if (s == lastDiag) return
+        lastDiag = s
+        val t = java.text.SimpleDateFormat("M/d HH:mm:ss", java.util.Locale.KOREA).format(java.util.Date())
+        Prefs(this).bubbleDiag = "$t  $s"
+    }
+
+    /** 위치 초기화 등으로 버튼을 다시 그림 */
+    fun redrawBubble() {
+        removeBubble()
+        handler.postDelayed({ updateBubble() }, 200)
+    }
+
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            val pkg = event.packageName?.toString().orEmpty()
+            // 키보드·상단바는 '앞에 나온 앱'으로 치지 않음
+            val ignore = pkg.isEmpty() || pkg == packageName || "inputmethod" in pkg || "honeyboard" in pkg || pkg == "com.android.systemui"
+            if (!ignore) lastPkg = pkg
+        }
         handler.removeCallbacks(refresh)
         handler.postDelayed(refresh, 250)
     }
@@ -208,9 +234,13 @@ class KakaoAccessibilityService : AccessibilityService() {
     // ───────── 떠 있는 버튼 ─────────
 
     private fun updateBubble() {
-        val apps = appWindows().mapNotNull { it.root?.packageName?.toString() }
-        val show = KAKAO in apps && packageName !in apps
+        val wins = appWindows()
+        val apps = wins.mapNotNull { it.root?.packageName?.toString() }
+        // 창 목록을 못 받는 기기에서는 마지막으로 앞에 나온 앱으로 판단
+        val kakao = KAKAO in apps || (apps.isEmpty() && lastPkg == KAKAO)
+        val show = kakao && packageName !in apps
         if (show) showBubble() else removeBubble()
+        diag("앱 창 ${wins.size}개 [${apps.joinToString().ifBlank { "없음" }}] · 최근 앱 ${lastPkg.ifBlank { "-" }} · 카톡 ${if (kakao) "인식" else "못 찾음"} · 버튼 ${if (bubble != null) "표시 중" else "숨김"}")
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -269,6 +299,7 @@ class KakaoAccessibilityService : AccessibilityService() {
             }
         }
         runCatching { wm.addView(v, lp); bubble = v; bubbleParams = lp }
+            .onFailure { diag("버튼 그리기 실패: ${it.javaClass.simpleName} ${it.message}") }
     }
 
     /** 지금 화면의 가로·세로 픽셀 */

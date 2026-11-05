@@ -29,10 +29,15 @@
     <a class="btn" id="openChrome" href="#">크롬으로 열기</a>
   </div>
 
+  <div class="kakao" id="auto" style="display:block;background:#E8F5EF;border-color:var(--green)">
+    <div class="t">잠시 뒤 자동으로 열려요</div>
+    <div>열린 구글 화면에서 <b>'테스터 되기'</b>를 한 번 누르고,<br>이어서 <b>'Google Play에서 다운로드' → '설치'</b>를 누르세요.</div>
+  </div>
+
   <div class="step">
     <div class="t"><span class="num">1</span>테스터 되기</div>
-    <div class="muted">버튼을 누르고, 열린 화면에서 <b>'테스터 되기'</b>를 누르세요. (처음 한 번만)</div>
-    <a class="btn" href="https://play.google.com/apps/internaltest/4699912874204294763">① 테스터 되기</a>
+    <div class="muted">자동으로 안 열리면 이 버튼을 누르고, 열린 화면에서 <b>'테스터 되기'</b>를 누르세요. (처음 한 번만)</div>
+    <a class="btn" id="optin" href="https://play.google.com/apps/internaltest/4699912874204294763">① 테스터 되기</a>
   </div>
 
   <div class="step">
@@ -48,10 +53,26 @@
   </div>
 </main>
 <script>
+  var OPTIN = "https://play.google.com/apps/internaltest/4699912874204294763";
+  // 테스터 참여 화면은 플레이 스토어 앱이 가로채면 '항목을 찾을 수 없습니다'가 나오므로 크롬에서 열도록 함
+  (function () {
+    var ua = navigator.userAgent || "";
+    if (/KAKAOTALK/i.test(ua)) return;   // 카톡 안이면 아래에서 먼저 크롬으로 넘김
+    var chromeOptin = "intent://" + OPTIN.replace(/^https?:\/\//, "") +
+      "#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=" + encodeURIComponent(OPTIN) + ";end";
+    // 안드로이드에서는 항상 크롬으로 (크롬이 없으면 지금 브라우저에서)
+    var target = /Android/i.test(ua) ? chromeOptin : OPTIN;
+    document.getElementById("optin").href = target;
+    // 이 페이지를 처음 열었을 때 한 번만 자동으로 넘어감 (뒤로 와서 다시 보면 넘어가지 않음)
+    try { if (sessionStorage.getItem("optinOpened")) { document.getElementById("auto").style.display = "none"; return; } sessionStorage.setItem("optinOpened", "1"); } catch (e) {}
+    setTimeout(function () { location.href = target; }, 1500);
+  })();
+
   // 카카오톡 인앱 브라우저면 외부 브라우저(크롬)로 이 페이지를 다시 엶
   (function () {
     var ua = navigator.userAgent || "";
     if (!/KAKAOTALK/i.test(ua)) return;
+    document.getElementById("auto").style.display = "none";
     var here = location.href;
     document.getElementById("kakao").style.display = "block";
     var external = "kakaotalk://web/openExternal?url=" + encodeURIComponent(here);

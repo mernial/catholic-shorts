@@ -168,7 +168,7 @@ class KakaoAccessibilityService : AccessibilityService() {
     private var cover: android.widget.LinearLayout? = null
     private var coverText: TextView? = null
 
-    private fun showCover() {
+    private fun showCover(title: String = "예전 대화에서 찾고 있어요…", stopLabel: String = "그만 찾고 지금까지 본 데서 찾기") {
         if (cover != null) return
         val box = android.widget.LinearLayout(this).apply {
             orientation = android.widget.LinearLayout.VERTICAL
@@ -183,7 +183,7 @@ class KakaoAccessibilityService : AccessibilityService() {
             gravity = Gravity.CENTER
         })
         coverText = TextView(this).apply {
-            text = "예전 대화에서 찾고 있어요…"
+            text = title
             setTextColor(android.graphics.Color.WHITE)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
             gravity = Gravity.CENTER
@@ -191,7 +191,7 @@ class KakaoAccessibilityService : AccessibilityService() {
         }
         box.addView(coverText)
         box.addView(TextView(this).apply {
-            text = "그만 찾고 지금까지 본 데서 찾기"
+            text = stopLabel
             setTextColor(CHARCOAL_BOTTOM)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 17f)
             gravity = Gravity.CENTER
@@ -261,6 +261,79 @@ class KakaoAccessibilityService : AccessibilityService() {
             handler.postDelayed({ step() }, 450)   // 예전 대화가 그려질 때까지 잠깐 기다림
         }
         step()
+    }
+
+    // ───────── 대화 내보내기 (사용자가 허락했을 때 카톡 메뉴를 대신 눌러 줌) ─────────
+
+    /** 화면에 떠 있는 모든 창(카톡, 공유 창 등)의 뿌리 */
+    private fun allRoots(): List<AccessibilityNodeInfo> =
+        (runCatching { windows.mapNotNull { it.root } }.getOrDefault(emptyList()) + listOfNotNull(rootInActiveWindow))
+            .filter { it.packageName != packageName }
+
+    /** [iconOnly] 면 아이콘 버튼 설명(contentDescription)만 봄 — 대화 글에 같은 낱말이 있어도 누르지 않게 */
+    private fun findAny(match: (String) -> Boolean, iconOnly: Boolean = false): AccessibilityNodeInfo? {
+        for (r in allRoots()) {
+            walk(r) { n ->
+                val l = if (iconOnly) n.contentDescription?.toString()?.trim().orEmpty() else label(n)
+                n.isVisibleToUser && l.isNotEmpty() && match(l)
+            }?.let { return it }
+        }
+        return null
+    }
+
+    /** [match] 에 맞는 것을 찾아 누름. 안 보이면 [scroll] 이면 목록을 넘겨 가며 [tries] 번 다시 봄 */
+    private fun tapWhenShown(match: (String) -> Boolean, tries: Int, scroll: Boolean, iconOnly: Boolean = false, then: (Boolean) -> Unit) {
+        if (stopCollect) { then(false); return }
+        val n = findAny(match, iconOnly)
+        val target = n?.let { clickable(it) }
+        if (target != null && target.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+            handler.postDelayed({ then(true) }, 900)
+            return
+        }
+        if (tries <= 0) { then(false); return }
+        if (scroll) {
+            allRoots().forEach { r ->
+                walk(r) { x -> x.isScrollable && x.isVisibleToUser }?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
+            }
+        }
+        handler.postDelayed({ tapWhenShown(match, tries - 1, scroll, iconOnly, then) }, 450)
+    }
+
+    /**
+     * 지금 카톡 대화방의 '대화 내용 내보내기 → 텍스트만 보내기'를 눌러 이 앱('대화에서 찾기')으로 보냄.
+     * 카톡 화면 구성이 바뀌어 못 찾으면 [done](false, 막힌 단계)
+     */
+    fun exportChat(done: (Boolean, String) -> Unit) {
+        if (collecting) return
+        collecting = true
+        stopCollect = false
+        showCover("이 대화방의 대화를 내보내는 중이에요…\n내보낸 대화는 이 휴대폰 안에만 보관돼요", "그만두기")
+        val appName = getString(R.string.app_name)
+        fun end(ok: Boolean, step: String) {
+            collecting = false
+            removeCover()
+            done(ok, step)
+        }
+        // 1) 오른쪽 위 ☰ 메뉴
+        tapWhenShown({ it == "메뉴" || it.contains("서랍") || it == "Menu" }, 8, false, iconOnly = true, then = { ok1 ->
+            if (!ok1) return@tapWhenShown end(false, "오른쪽 위 ☰ 메뉴")
+            // 2) 서랍 아래 ⚙ 설정
+            tapWhenShown({ it == "설정" || it == "채팅방 설정" || it.contains("Settings") }, 8, false, iconOnly = true, then = { ok2 ->
+                if (!ok2) return@tapWhenShown end(false, "아래쪽 ⚙ 설정")
+                // 3) 대화 내용 내보내기
+                tapWhenShown({ it.contains("대화 내용 내보내기") || it.contains("Export") }, 10, true) { ok3 ->
+                    if (!ok3) return@tapWhenShown end(false, "'대화 내용 내보내기'")
+                    // 4) 텍스트만 보내기
+                    tapWhenShown({ it.contains("텍스트") && it.contains("보내기") || it.contains("Send text") }, 8, false) { ok4 ->
+                        if (!ok4) return@tapWhenShown end(false, "'텍스트만 보내기'")
+                        // 5) 공유 창에서 이 앱('대화에서 찾기') 고르기
+                        tapWhenShown({ it == "대화에서 찾기" || it == appName || it.startsWith(appName) }, 12, true) { ok5 ->
+                            end(ok5, if (ok5) "" else "공유 창에서 '대화에서 찾기'")
+                        }
+                    }
+                }
+            })
+        })
     }
 
     private fun findEditable(root: AccessibilityNodeInfo?) = walk(root) { it.isEditable && it.isVisibleToUser }

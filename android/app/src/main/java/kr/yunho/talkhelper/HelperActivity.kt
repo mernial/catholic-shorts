@@ -23,6 +23,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import android.app.AlertDialog
 import kr.yunho.talkhelper.Ui.add
 import kr.yunho.talkhelper.core.EndSignal
 import kr.yunho.talkhelper.core.HelperException
@@ -494,8 +495,44 @@ class HelperActivity : Activity() {
         resultBox.visibility = View.GONE
         answerBox.visibility = View.GONE
         val svc = KakaoAccessibilityService.instance
-        // 내보내 저장해 둔 대화가 없으면: 카톡 대화방을 위로 넘기며 예전 대화를 모아서 찾음
+        // 내보내 저장해 둔 대화가 없으면: 먼저 이 방 대화를 내보낼지 물어봄
         if (room == null && svc != null) {
+            showStatus(null)
+            AlertDialog.Builder(this)
+                .setTitle("이 카톡방의 대화 메시지를 내보낼까요?")
+                .setMessage(
+                    "내보내면 이 방의 예전 대화까지 처음부터 찾아서, 대화가 어떻게 진행되고 무엇이 결정됐는지 정리해 드려요.\n\n" +
+                        "• 내보낸 대화는 이 휴대폰 안에만 보관돼요. 다른 곳에 저장되지 않아요.\n" +
+                        "• 찾을 때만 질문과 관련된 부분을 AI(Claude)에 보내 답을 받아요.\n" +
+                        "• 앱에서 언제든 지울 수 있어요."
+                )
+                .setPositiveButton("내보내고 찾기") { _, _ -> exportThenAsk(question, svc) }
+                .setNegativeButton("이번엔 화면에서만") { _, _ -> collectThenAsk(question, chat, svc) }
+                .setNeutralButton("취소", null)
+                .show()
+            return
+        }
+        if (chat.isBlank()) return showStatus("화면에서 대화를 읽지 못했어요. 카톡 대화방에서 다시 눌러 주세요.", Ui.RED)
+        answerFrom(question, chat, room, 0)
+    }
+
+    /** 카톡 메뉴를 대신 눌러 이 방 대화를 이 앱으로 내보내고, 저장되면 '대화에서 찾기'가 이어서 답함 */
+    private fun exportThenAsk(question: String, svc: KakaoAccessibilityService) {
+        AskActivity.pendingQuestion = question to System.currentTimeMillis()
+        val app = applicationContext
+        finish()   // 카드를 닫아야 카톡 메뉴를 누를 수 있음
+        Bg.main.postDelayed({
+            svc.exportChat { ok, step ->
+                if (!ok) Toast.makeText(app,
+                    "$step 단계를 자동으로 못 눌렀어요.\n카톡 ☰ → ⚙ → '대화 내용 내보내기' → '텍스트만 보내기' → '대화에서 찾기'를 직접 눌러 주세요.",
+                    Toast.LENGTH_LONG).show()
+            }
+        }, 400)
+    }
+
+    /** 내보내지 않고: 카톡 대화방을 위로 넘기며 예전 대화를 모아서 찾음 */
+    private fun collectThenAsk(question: String, chat: String, svc: KakaoAccessibilityService) {
+        run {
             showStatus("📜 예전 대화를 넘겨 보며 모으는 중… 잠시만요")
             svc.collectHistory(progress = { n ->
                 if (!isFinishing) showStatus("📜 예전 대화를 넘겨 보며 모으는 중… ${n}쪽")
@@ -506,10 +543,7 @@ class HelperActivity : Activity() {
                 if (all.isBlank()) showStatus("화면에서 대화를 읽지 못했어요. 카톡 대화방에서 다시 눌러 주세요.", Ui.RED)
                 else answerFrom(question, all, null, lines.size)
             }
-            return
         }
-        if (chat.isBlank()) return showStatus("화면에서 대화를 읽지 못했어요. 카톡 대화방에서 다시 눌러 주세요.", Ui.RED)
-        answerFrom(question, chat, room, 0)
     }
 
     private fun answerFrom(question: String, chat: String, room: String?, collectedLines: Int) {

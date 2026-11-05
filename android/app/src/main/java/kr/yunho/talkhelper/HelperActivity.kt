@@ -172,11 +172,13 @@ class HelperActivity : Activity() {
         card.add(head, 0)
 
         // 말투 모드 (마지막에 고른 것을 기억)
-        val modeRow = Ui.hbox(ctx)
         val buttons = LinkedHashMap<Mode, Button>()
-        for (m in Mode.values()) buttons[m] = modeRow.add(small("${m.emoji} ${m.label}", sp = 14f) { selectMode(m) }) as Button
+        Mode.values().toList().chunked(2).forEachIndexed { i, pair ->
+            val modeRow = Ui.hbox(ctx)
+            for (m in pair) buttons[m] = modeRow.add(small("${m.emoji} ${m.label}", sp = 14f) { selectMode(m) }) as Button
+            card.add(modeRow, if (i == 0) 6 else 4)
+        }
         modeButtons = buttons
-        card.add(modeRow, 6)
         paintModes()
 
         // 보내는 방식 (바로 / 3초 뒤 / 확인 후)
@@ -190,12 +192,19 @@ class HelperActivity : Activity() {
 
         // 말하기 + 들은 말
         val talkRow = Ui.hbox(ctx)
-        micButton = small("", Ui.BROWN, Ui.YELLOW, sp = 16f) { toggleMic() }
+        micButton = small("", Ui.BROWN, Ui.YELLOW, sp = 16f) { if (!listening) askMode = false; toggleMic() }
         talkRow.add(micButton, weight = 2f)
         talkRow.add(small("⌨️", sp = 15f) {
             stopRecognizer(); resetMic()
             typedRow.visibility = View.VISIBLE
             typedInput.requestFocus()
+        }, weight = 0.7f)
+        // 지금 카톡 화면에 보이는 대화에서 묻기
+        talkRow.add(small("🔎", sp = 15f) {
+            stopRecognizer(); resetMic()
+            askMode = true
+            toggleMic()
+            if (listening) heardView.text = "무엇을 찾을까요? 말씀하세요 (예: 연습이 언제였지?)"
         }, weight = 0.7f)
         card.add(talkRow, 8)
         resetMic()
@@ -236,6 +245,16 @@ class HelperActivity : Activity() {
         againRow.add(small("🔄 다시 다듬기", sp = 14f) { stopCountdown(); if (lastSpoken.isNotBlank()) rewrite(lastSpoken) })
         resultBox.add(againRow, 6)
         card.add(resultBox, 8)
+
+        // 대화에서 찾은 답
+        answerBox = Ui.vbox(ctx, 10, Ui.THEM).apply { visibility = View.GONE }
+        answerText = Ui.text(ctx, "", 18f).apply { setTextIsSelectable(true) }
+        answerBox.add(answerText, 0)
+        val answerRow = Ui.hbox(ctx)
+        answerRow.add(small("📍 대화에서 보기", Ui.BROWN, Ui.YELLOW, sp = 15f) { goToMessage() }, weight = 1.4f)
+        answerRow.add(small("🔊 듣기", sp = 15f) { speak(answerText.text.toString()) })
+        answerBox.add(answerRow, 8)
+        card.add(answerBox, 8)
 
         // 새 버전 알림 (누르면 앱에서 업데이트)
         val updateLine = Ui.text(ctx, "🔔 새 버전이 있어요. 눌러서 업데이트", 14f, bold = true, color = Ui.RED).apply {
@@ -312,6 +331,7 @@ class HelperActivity : Activity() {
         }
         stopCountdown()
         heard.clear(); partial = ""; retries = 0; lastHeardAt = 0L
+        if (::answerBox.isInitialized) answerBox.visibility = View.GONE
         resultBox.visibility = View.GONE
         listening = true; finishing = false
         micButton.text = "🎙️ 듣는 중 (누르면 끝)"
@@ -332,6 +352,7 @@ class HelperActivity : Activity() {
         stopCountdown()
         heard.clear(); partial = ""
         resultBox.visibility = View.GONE
+        if (::answerBox.isInitialized) answerBox.visibility = View.GONE
         listening = true; finishing = false
         micButton.text = "🎙️ 듣는 중 (누르면 끝)"
         micButton.background = Ui.rounded(this, Ui.GREEN, 18)
@@ -358,6 +379,7 @@ class HelperActivity : Activity() {
                 r.onSuccess { text ->
                     val spoken = EndSignal.strip(text)
                     if (spoken.isBlank()) heardView.text = "말씀을 듣지 못했어요. 다시 눌러 주세요."
+                    else if (askMode) { heardView.text = "물어본 것: $spoken"; askChat(spoken) }
                     else { heardView.text = "내가 한 말: $spoken"; rewrite(spoken) }
                 }.onFailure {
                     heardView.text = "고급 받아쓰기에 실패했어요. 다시 눌러 주세요."
@@ -410,8 +432,8 @@ class HelperActivity : Activity() {
         resetMic()
         val spoken = EndSignal.strip(heard.toString())
         if (spoken.isBlank()) { heardView.text = "말씀을 듣지 못했어요. 다시 눌러 주세요."; return }
-        heardView.text = "내가 한 말: $spoken"
-        rewrite(spoken)
+        heardView.text = (if (askMode) "물어본 것: " else "내가 한 말: ") + spoken
+        if (askMode) askChat(spoken) else rewrite(spoken)
     }
 
     private fun resetMic() {
@@ -447,6 +469,8 @@ class HelperActivity : Activity() {
             when {
                 finishing -> finishSpeech()
                 !listening -> {}
+                // 묻기는 한 문장이면 충분 → 바로 찾기
+                askMode && heard.isNotBlank() -> { listening = false; finishSpeech() }
                 // 신호 말이 나왔으면 마무리
                 EndSignal.isEnd(heard.toString()) -> { listening = false; finishSpeech() }
                 else -> keepListening()
@@ -462,7 +486,7 @@ class HelperActivity : Activity() {
                     { resetMic(); showStatus("인터넷 연결을 확인해 주세요.", Ui.RED) }
                 else -> {
                     if (partial.isNotBlank()) { heard.append(' ').append(partial); partial = "" }
-                    if (EndSignal.isEnd(heard.toString())) { listening = false; finishSpeech() }
+                    if ((askMode && heard.isNotBlank()) || EndSignal.isEnd(heard.toString())) { listening = false; finishSpeech() }
                     else keepListening()
                 }
             }
@@ -485,13 +509,86 @@ class HelperActivity : Activity() {
 
     // ───────── 다듬기 ─────────
 
+    // ───────── 대화에서 찾기 (카드 안에서 바로) ─────────
+
+    private var askMode = false
+    private lateinit var answerBox: LinearLayout
+    private lateinit var answerText: TextView
+    private var answerKeyword: String? = null
+    private var tts: android.speech.tts.TextToSpeech? = null
+
+    /** 이 대화방을 미리 '내보내기'로 저장해 뒀으면 그 전체 대화 + 지금 화면 */
+    private fun chatForThisRoom(): Pair<String, String?> {
+        val screen = screenText.orEmpty()
+        val top = screen.lines().take(8).map { it.trim() }
+        val room = AskActivity.savedRooms(this).firstOrNull { name -> top.any { it == name || it.startsWith(name) } }
+        val saved = room?.let { java.io.File(AskActivity.chatsDir(this), "$it.txt").readText() }.orEmpty()
+        val chat = if (saved.isNotBlank()) "$saved\n\n[지금 카톡 화면]\n$screen" else screen
+        return chat to room
+    }
+
+    private fun askChat(question: String) {
+        val claude = ClaudeProvider.get(this) ?: return showStatus("⚠️ 아직 준비가 안 됐어요. 앱을 열어 설정을 마쳐 주세요.", Ui.RED)
+        val (chat, room) = chatForThisRoom()
+        if (chat.isBlank()) return showStatus("화면에서 대화를 읽지 못했어요. 카톡 대화방에서 다시 눌러 주세요.", Ui.RED)
+        resultBox.visibility = View.GONE
+        answerBox.visibility = View.GONE
+        showStatus(if (room != null) "🔎 '$room' 대화 전체에서 찾는 중…" else "🔎 화면의 대화에서 찾는 중…")
+        Bg.run({ claude.answer(question, chat, room) }) { r ->
+            if (isFinishing) return@run
+            askMode = false
+            r.onSuccess { full ->
+                val (text, word) = kr.yunho.talkhelper.core.ChatSearch.splitAnswer(full)
+                showStatus(null)
+                answerKeyword = word
+                answerText.text = text
+                answerBox.visibility = View.VISIBLE
+                speak(text)
+            }.onFailure { showStatus((it as? HelperException)?.message ?: "문제가 생겼어요: ${it.message}", Ui.RED) }
+        }
+    }
+
+    /** 카드를 닫고, 카톡 대화방 검색으로 그 말이 있는 곳으로 이동 */
+    private fun goToMessage() {
+        val word = answerKeyword
+        val app = applicationContext
+        tts?.stop()
+        finish()
+        val svc = KakaoAccessibilityService.instance
+        if (word.isNullOrBlank() || svc == null) {
+            Toast.makeText(app, "카톡 대화방에서 직접 찾아 주세요.", Toast.LENGTH_LONG).show()
+            return
+        }
+        svc.searchInChat(word, { ok ->
+            if (!ok) {
+                (app.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("찾을말", word))
+                Toast.makeText(app, "대화방 위쪽 🔍를 누르고 '$word'를 붙여 넣어 찾아 주세요.", Toast.LENGTH_LONG).show()
+            }
+        })
+    }
+
+    private fun speak(text: String) {
+        if (text.isBlank()) return
+        val t = tts ?: android.speech.tts.TextToSpeech(applicationContext) { st ->
+            if (st == android.speech.tts.TextToSpeech.SUCCESS) {
+                tts?.language = java.util.Locale.KOREAN
+                tts?.setSpeechRate(0.9f)
+                tts?.speak(text.take(3900), android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "ans")
+            }
+        }.also { tts = it; return }
+        t.speak(text.take(3900), android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "ans")
+    }
+
     private fun rewrite(spoken: String) {
         val claude = ClaudeProvider.get(this) ?: return showStatus("⚠️ 아직 준비가 안 됐어요. '${getString(R.string.app_name)}' 앱을 열어 설정을 마쳐 주세요.", Ui.RED)
         lastSpoken = spoken
         showStatus("${mode.emoji} '${mode.label}' 말투로 다듬는 중… 잠시만요")
         resultBox.visibility = View.GONE
         val m = mode
-        Bg.run({ claude.rewrite(m, spoken, screenText, prefs.myName, prefs.myRole) }) { r ->
+        Bg.run({
+            claude.rewrite(m, spoken, screenText, prefs.myName, prefs.myRole, prefs.carefulRewrite)
+                .also { claude.lastUsage?.let { u -> prefs.lastUsage = u.describe() } }
+        }) { r ->
             if (isFinishing) return@run
             r.onSuccess { text ->
                 showStatus(null)
@@ -557,6 +654,7 @@ class HelperActivity : Activity() {
 
     override fun onDestroy() {
         Bg.main.removeCallbacks(tick)
+        tts?.shutdown(); tts = null
         whisperRec?.stop()
         whisperRec = null
         runCatching { recognizer?.destroy() }

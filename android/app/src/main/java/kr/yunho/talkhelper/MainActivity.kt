@@ -217,15 +217,18 @@ class MainActivity : Activity() {
             .apply { minHeight = Ui.dp(this@MainActivity, 88) }, 18)
 
         body.add(Ui.text(this, "API 키를 직접 넣으려면 (자녀용)", 15f, bold = true, color = Ui.MUTED), 30)
-        val key = Ui.input(this, "sk-ant-...", password = true)
+        val key = Ui.input(this, "API 키 또는 설정 메시지 붙여넣기", password = true)
         body.add(key, 6)
         body.add(Ui.button(this, "저장", Ui.CARD, sp = 18f) {
-            val k = key.text.toString().trim()
+            val k = keyFrom(key.text.toString())
             if (!k.startsWith("sk-ant-")) {
                 Toast.makeText(this, "sk-ant- 로 시작하는 키를 넣어 주세요", Toast.LENGTH_LONG).show()
             } else { Prefs(this).apiKey = k; render() }
         }, 8)
     }
+
+    /** 키 칸에 API 키를 넣든, 설정 코드(안내문 포함)를 통째로 붙여 넣든 키로 바꿔 줌 */
+    private fun keyFrom(text: String): String = SetupCode.decode(text) ?: text.trim()
 
     private fun importFromClipboard(silent: Boolean) {
         val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -249,7 +252,7 @@ class MainActivity : Activity() {
     private fun done() {
         val box = bigCard(
             "준비 끝! 🎉",
-            "카톡 대화방을 열면 노란 💬 버튼이 있어요.\n\n1. 💬 버튼을 누르고\n2. 하고 싶은 말을 편하게 한 뒤\n3. 끝에 \"보내 줘\"라고 말하세요.\n\n고른 말투로 바꿔서 보내 드려요.\n🙏 정중하게  😊 친구처럼  💼 업무 연락"
+            "카톡 대화방을 열면 노란 💬 버튼이 있어요.\n\n1. 💬 버튼을 누르고\n2. 하고 싶은 말을 편하게 한 뒤\n3. 끝에 \"보내 줘\"라고 말하세요.\n\n고른 말투로 바꿔서 보내 드려요.\n🙏 정중하게  😊 친구처럼\n💼 업무 연락  🤗 자녀에게"
         )
         box.add(Ui.button(this, "🎤  여기서 연습해 보기", Ui.CARD, sp = 20f) {
             startActivity(Intent(this, HelperActivity::class.java))
@@ -257,6 +260,11 @@ class MainActivity : Activity() {
         packageManager.getLaunchIntentForPackage(KAKAO)?.let { launch ->
             box.add(Ui.button(this, "💬  카톡 열기", sp = 22f) { startActivity(launch) }, 10)
         }
+
+        body.add(Ui.button(this, "🔎  대화에서 찾기", sp = 20f) {
+            startActivity(Intent(this, AskActivity::class.java))
+        }.apply { minHeight = Ui.dp(this@MainActivity, 76) }, 18)
+        body.add(Ui.text(this, "카톡 대화를 이 앱으로 내보내 두면, 예전에 무슨 말을 했는지 물어볼 수 있어요.", 14f, color = Ui.MUTED), 4)
 
         body.add(Ui.button(this, "👨‍👩‍👧  가족에게 설정 보내기", Ui.CARD, sp = 18f) { shareSetup() }, 26)
         body.add(Ui.text(this, "부모님 폰에 앱을 설치한 뒤, 이 버튼으로 카톡에 설정을 보내면 부모님은 복사만 하시면 됩니다.", 14f, color = Ui.MUTED), 4)
@@ -325,19 +333,41 @@ class MainActivity : Activity() {
         body.add(sendGroup, 6)
         body.add(pressSend, 12)
 
+        // 다듬기 품질
+        body.add(Ui.text(this, "답장 다듬기 품질", 16f, bold = true), 16)
+        val careful = check("섬세하게 다듬기 (한 번에 약 10원, 기본은 약 1원)", p.carefulRewrite)
+        body.add(careful, 6)
+        body.add(Ui.text(this, "기본으로도 충분히 자연스럽습니다. 어른께 드리는 글처럼 존댓말이 아주 중요할 때만 켜세요.", 13f, color = Ui.MUTED), 4)
+
         whisperSection(p)
 
         body.add(Ui.button(this, "저장", sp = 22f) {
-            p.apiKey = key.text.toString().trim()
+            p.apiKey = keyFrom(key.text.toString())
             p.myName = name.text.toString().trim()
             p.myRole = role.text.toString().trim()
             SendMode.values().getOrNull(sendGroup.checkedRadioButtonId - 2000)?.let { p.sendMode = it }
             p.autoPressSend = pressSend.isChecked
+            p.carefulRewrite = careful.isChecked
             Toast.makeText(this, "저장했습니다", Toast.LENGTH_SHORT).show()
             showAdvanced = false
             render()
         }, 18)
         body.add(Ui.button(this, "돌아가기", Ui.CARD, sp = 16f) { showAdvanced = false; render() }, 8)
+        // 도우미 버튼이 안 보일 때 원인 확인용
+        body.add(Ui.text(this, "도우미 버튼 상태", 14f, bold = true, color = Ui.MUTED), 24)
+        body.add(Ui.text(this,
+            (if (KakaoAccessibilityService.instance != null) "접근성 서비스: 연결됨\n" else "접근성 서비스: 연결 안 됨 (접근성을 껐다 켜 주세요)\n") +
+                p.bubbleDiag.ifBlank { "기록 없음 (카톡을 한 번 열었다가 돌아와 보세요)" },
+            13f, color = Ui.MUTED).apply { setTextIsSelectable(true) }, 4)
+        body.add(Ui.button(this, "도우미 버튼 위치 초기화", Ui.CARD, sp = 15f) {
+            p.bubbleX = -1; p.bubbleY = -1
+            KakaoAccessibilityService.instance?.redrawBubble()
+            Toast.makeText(this, "버튼을 오른쪽 가운데로 되돌렸어요. 카톡을 다시 열어 보세요.", Toast.LENGTH_LONG).show()
+        }, 6)
+        p.lastUsage.takeIf { it.isNotBlank() }?.let {
+            body.add(Ui.text(this, "마지막 다듬기 사용량", 14f, bold = true, color = Ui.MUTED), 24)
+            body.add(Ui.text(this, it, 13f, color = Ui.MUTED), 4)
+        }
         sendLog()
     }
 

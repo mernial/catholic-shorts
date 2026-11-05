@@ -5,6 +5,7 @@ import android.annotation.SuppressLint
 import android.content.Intent
 import android.graphics.PixelFormat
 import android.graphics.Rect
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -45,10 +46,36 @@ class KakaoAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         instance = this
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
+        diag("서비스 연결됨")
         updateBubble()
     }
 
+    // ───────── 진단 기록 (설정 화면 '도우미 버튼 상태'에 보임) ─────────
+
+    private var lastDiag = ""
+    /** 마지막으로 앞에 나온 앱 (창 목록을 못 받는 기기를 위한 보조 정보) */
+    private var lastPkg = ""
+
+    private fun diag(s: String) {
+        if (s == lastDiag) return
+        lastDiag = s
+        val t = java.text.SimpleDateFormat("M/d HH:mm:ss", java.util.Locale.KOREA).format(java.util.Date())
+        Prefs(this).bubbleDiag = "$t  $s"
+    }
+
+    /** 위치 초기화 등으로 버튼을 다시 그림 */
+    fun redrawBubble() {
+        removeBubble()
+        handler.postDelayed({ updateBubble() }, 200)
+    }
+
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            val pkg = event.packageName?.toString().orEmpty()
+            // 키보드·상단바는 '앞에 나온 앱'으로 치지 않음
+            val ignore = pkg.isEmpty() || pkg == packageName || "inputmethod" in pkg || "honeyboard" in pkg || pkg == "com.android.systemui"
+            if (!ignore) lastPkg = pkg
+        }
         handler.removeCallbacks(refresh)
         handler.postDelayed(refresh, 250)
     }
@@ -156,6 +183,37 @@ class KakaoAccessibilityService : AccessibilityService() {
         return sb.toString()
     }
 
+    /**
+     * 카톡 대화방의 🔍(대화 검색)을 눌러 [keyword] 를 넣고 검색 → 그 대화 위치로 이동.
+     * 카톡 화면 구조에 따라 실패할 수 있음 (그때는 false)
+     */
+    fun searchInChat(keyword: String, done: (Boolean) -> Unit, attempt: Int = 0) {
+        val root = kakaoRoot()
+        val searchBtn = root?.let { r ->
+            walk(r) { n -> n.isVisibleToUser && label(n).let { it == "검색" || it == "대화 검색" || it == "Search" } }
+        }?.let { clickable(it) }
+        if (searchBtn == null) {
+            if (attempt < 8) handler.postDelayed({ searchInChat(keyword, done, attempt + 1) }, 300) else done(false)
+            return
+        }
+        searchBtn.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+        handler.postDelayed({
+            // 검색칸은 화면 위쪽에 열림 → 가장 위에 있는 입력칸
+            val r = kakaoRoot()
+            val edits = ArrayList<AccessibilityNodeInfo>()
+            walk(r) { n -> if (n.isEditable && n.isVisibleToUser) edits += n; false }
+            val field = edits.minByOrNull { bounds(it).top }
+            if (field == null) { done(false); return@postDelayed }
+            field.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+            val args = Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, keyword) }
+            val ok = field.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+            if (ok && Build.VERSION.SDK_INT >= 30) {
+                field.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)
+            }
+            done(ok)
+        }, 700)
+    }
+
     enum class SendResult { SENT, TYPED_ONLY, FAILED }
 
     /**
@@ -207,9 +265,13 @@ class KakaoAccessibilityService : AccessibilityService() {
     // ───────── 떠 있는 버튼 ─────────
 
     private fun updateBubble() {
-        val apps = appWindows().mapNotNull { it.root?.packageName?.toString() }
-        val show = KAKAO in apps && packageName !in apps
+        val wins = appWindows()
+        val apps = wins.mapNotNull { it.root?.packageName?.toString() }
+        // 창 목록을 못 받는 기기에서는 마지막으로 앞에 나온 앱으로 판단
+        val kakao = KAKAO in apps || (apps.isEmpty() && lastPkg == KAKAO)
+        val show = kakao && packageName !in apps
         if (show) showBubble() else removeBubble()
+        diag("앱 창 ${wins.size}개 [${apps.joinToString().ifBlank { "없음" }}] · 최근 앱 ${lastPkg.ifBlank { "-" }} · 카톡 ${if (kakao) "인식" else "못 찾음"} · 버튼 ${if (bubble != null) "표시 중" else "숨김"}")
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -230,7 +292,8 @@ class KakaoAccessibilityService : AccessibilityService() {
             elevation = Ui.dp(this@KakaoAccessibilityService, 6).toFloat()
             contentDescription = getString(R.string.app_name) + " 열기"
         }
-        val dm = resources.displayMetrics
+        // 지금 화면 크기 (폴드폰은 펼침·접힘에 따라 바뀜)
+        val (sw, sh) = screenSize()
         val prefs = Prefs(this)
         val lp = WindowManager.LayoutParams(
             size, size,
@@ -239,8 +302,10 @@ class KakaoAccessibilityService : AccessibilityService() {
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = prefs.bubbleX.takeIf { it >= 0 } ?: (dm.widthPixels - size - Ui.dp(this@KakaoAccessibilityService, 12))
-            y = prefs.bubbleY.takeIf { it >= 0 } ?: (dm.heightPixels * 0.55).toInt()
+            val margin = Ui.dp(this@KakaoAccessibilityService, 12)
+            // 저장된 위치가 지금 화면 밖이면(큰 화면에서 옮겨 둔 위치 등) 화면 안으로 끌어옴
+            x = (prefs.bubbleX.takeIf { it >= 0 } ?: (sw - size - margin)).coerceIn(0, maxOf(0, sw - size))
+            y = (prefs.bubbleY.takeIf { it >= 0 } ?: (sh * 0.55).toInt()).coerceIn(0, maxOf(0, sh - size))
         }
 
         var downX = 0f; var downY = 0f; var startX = 0; var startY = 0; var dragged = false
@@ -251,8 +316,8 @@ class KakaoAccessibilityService : AccessibilityService() {
                     val dx = e.rawX - downX; val dy = e.rawY - downY
                     if (dragged || Math.abs(dx) > 15 || Math.abs(dy) > 15) {
                         dragged = true
-                        lp.x = (startX + dx).toInt().coerceIn(0, dm.widthPixels - size)
-                        lp.y = (startY + dy).toInt().coerceIn(0, dm.heightPixels - size)
+                        lp.x = (startX + dx).toInt().coerceIn(0, sw - size)
+                        lp.y = (startY + dy).toInt().coerceIn(0, sh - size)
                         runCatching { wm.updateViewLayout(v, lp) }
                     }
                     true
@@ -265,6 +330,21 @@ class KakaoAccessibilityService : AccessibilityService() {
             }
         }
         runCatching { wm.addView(v, lp); bubble = v; bubbleParams = lp }
+            .onFailure { diag("버튼 그리기 실패: ${it.javaClass.simpleName} ${it.message}") }
+    }
+
+    /** 지금 화면의 가로·세로 픽셀 */
+    private fun screenSize(): Pair<Int, Int> =
+        if (Build.VERSION.SDK_INT >= 30) wm.currentWindowMetrics.bounds.let { it.width() to it.height() }
+        else resources.displayMetrics.let { it.widthPixels to it.heightPixels }
+
+    /** 폴드폰을 펼치거나 접는 등 화면이 바뀌면 버튼을 새 화면 안에 다시 그림 */
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (bubble != null) {
+            removeBubble()
+            handler.postDelayed({ updateBubble() }, 300)
+        }
     }
 
     private fun removeBubble() {

@@ -15,7 +15,7 @@ class ClaudeTest {
     private var reply = ok("\"토요일 저녁 7시에 뵙겠습니다.\"", "end_turn")
 
     private fun ok(text: String, stop: String) =
-        """{"id":"msg_1","type":"message","role":"assistant","model":"claude-haiku-5-5","content":[{"type":"text","text":${quote(text)}}],"stop_reason":"$stop","stop_sequence":null,"usage":{"input_tokens":10,"output_tokens":5}}"""
+        """{"id":"msg_1","type":"message","role":"assistant","model":"claude-sonnet-5-5","content":[{"type":"text","text":${quote(text)}}],"stop_reason":"$stop","stop_sequence":null,"usage":{"input_tokens":10,"output_tokens":5}}"""
 
     private fun quote(s: String) = "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
@@ -63,15 +63,48 @@ class ClaudeTest {
     fun rewriteRequestAndResult() {
         FakeServer().use { srv ->
             val c = Claude("sk-test", srv.url)
-            val out = c.rewrite(Mode.BUSINESS, "야 이거 토요일에 하자고 해", screen, "윤호요셉", "본당 주임신부")
+            val out = c.rewrite(Mode.BUSINESS, "야 이거 토요일에 하자고 해", screen, "윤호요셉", "본당 주임신부", careful = true)
             assertEquals("토요일 저녁 7시에 뵙겠습니다.", out)
-            assertTrue(body.contains("\"model\":\"claude-haiku-5-5\""))
+            assertTrue(body.contains("\"model\":\"claude-sonnet-5-5\""))
+            assertTrue(body.contains("\"fallbacks\":\"default\""))
+            assertTrue(beta.contains("server-side-fallback-2026-07-01"))
             assertTrue(body.contains("\"effort\":\"low\""))
             assertTrue(body.contains("야 이거 토요일에 하자고 해"))
             assertTrue(body.contains("청년 모임 언제 할까요?"))
-            assertTrue(body.contains("본당 주임신부"))
+            assertTrue(body.contains("<보내는사람>윤호요셉, 본당 주임신부</보내는사람>"))
+            // 시스템 지침에만 캐시 표시, 사람마다 다른 정보는 시스템 지침에 없어야 함
+            assertTrue(body.contains("\"cache_control\":{\"type\":\"ephemeral\"}"))
+            assertTrue(Prompts.system(Mode.BUSINESS) == Prompts.system(Mode.BUSINESS))
+            assertTrue(!Prompts.system(Mode.BUSINESS).contains("윤호요셉"))
+            assertEquals(c.lastUsage?.input, 10L)
             assertTrue(body.contains("업무 연락"))
             assertTrue(body.contains("해당 건은 토요일에 진행하겠습니다."))
+        }
+    }
+
+    @Test
+    fun rewriteDefaultsToHaikuWithoutFallback() {
+        FakeServer().use { srv ->
+            val c = Claude("sk-test", srv.url)
+            c.rewrite(Mode.POLITE, "알았어", "가".repeat(5000), "", "")
+            assertTrue(body.contains("\"model\":\"claude-haiku-5-5\""))
+            assertTrue(!body.contains("fallbacks"))
+            // 카톡 화면 글은 마지막 1,200자만 보냄
+            assertTrue(body.contains("가".repeat(Prompts.SCREEN_CHARS)))
+            assertTrue(!body.contains("가".repeat(Prompts.SCREEN_CHARS + 1)))
+        }
+    }
+
+    @Test
+    fun searchUsesHaikuWithoutFallback() {
+        FakeServer().use { srv ->
+            val c = Claude("sk-test", srv.url)
+            reply = ok("토요일입니다.", "end_turn")
+            val out = c.answer("성가대 연습 언제?", "김미카엘: 성가대 연습은 토요일", "청년부")
+            assertEquals("토요일입니다.", out)
+            assertTrue(body.contains("\"model\":\"claude-haiku-5-5\""))
+            assertTrue(!body.contains("fallbacks"))
+            assertTrue(body.contains("<질문>성가대 연습 언제?</질문>"))
         }
     }
 

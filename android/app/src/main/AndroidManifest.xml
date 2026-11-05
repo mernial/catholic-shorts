@@ -39,6 +39,24 @@
             android:taskAffinity="kr.yunho.talkhelper.helper"
             android:theme="@style/Helper" />
 
+        <!-- 대화에서 찾기: 카톡 '대화 내용 내보내기'에서 이 앱으로 공유받음 -->
+        <activity
+            android:name=".AskActivity"
+            android:exported="true"
+            android:label="대화에서 찾기"
+            android:launchMode="singleTop">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/zip" />
+            </intent-filter>
+        </activity>
+
         <!-- 카톡 위 떠 있는 버튼 + 카톡 입력창에 글을 넣고 전송 -->
         <service
             android:name=".KakaoAccessibilityService"

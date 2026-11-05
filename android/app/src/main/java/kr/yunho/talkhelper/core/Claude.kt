@@ -9,9 +9,11 @@ import com.anthropic.errors.InternalServerException
 import com.anthropic.errors.PermissionDeniedException
 import com.anthropic.errors.RateLimitException
 import com.anthropic.errors.UnauthorizedException
-import com.anthropic.models.messages.MessageCreateParams
-import com.anthropic.models.messages.OutputConfig
-import com.anthropic.models.messages.StopReason
+import com.anthropic.models.beta.messages.BetaCacheControlEphemeral
+import com.anthropic.models.beta.messages.BetaOutputConfig
+import com.anthropic.models.beta.messages.BetaStopReason
+import com.anthropic.models.beta.messages.BetaTextBlockParam
+import com.anthropic.models.beta.messages.MessageCreateParams
 import java.time.Duration
 
 /** 화면에 그대로 보여줄 수 있는 한국어 오류 */
@@ -28,23 +30,40 @@ class Claude(apiKey: String, baseUrl: String? = null) {
         .apply { if (baseUrl != null) baseUrl(baseUrl) }
         .build()
 
-    /** 내가 대충 말한 것을 [mode] 말투의 카톡 메시지로. [screenText] 는 그 순간 카톡 화면에 보이던 글 */
-    fun rewrite(mode: Mode, spoken: String, screenText: String?, myName: String, myRole: String): String =
-        ask(Prompts.system(mode, myName, myRole), Prompts.user(mode, spoken, screenText))
+    /**
+     * 내가 대충 말한 것을 [mode] 말투의 카톡 메시지로. [screenText] 는 그 순간 카톡 화면에 보이던 글.
+     * 기본은 저렴한 모델, [careful] 이면 뉘앙스를 더 섬세하게 다루는 모델
+     */
+    fun rewrite(mode: Mode, spoken: String, screenText: String?, myName: String, myRole: String, careful: Boolean = false): String =
+        ask(Prompts.system(mode), Prompts.user(mode, spoken, screenText, myName, myRole), if (careful) CAREFUL_MODEL else FAST_MODEL)
             .trim().removeSurrounding("\"").trim()
 
-    private fun ask(system: String, user: String): String {
-        val params = MessageCreateParams.builder()
-            .model(MODEL)
+    /** 카톡 대화에서 [question] 에 대한 답 찾기. [chat] 이 길면 관련 부분만 골라 보냄 */
+    fun answer(question: String, chat: String, room: String?): String =
+        ask(Prompts.ASK_SYSTEM, Prompts.askUser(question, room, ChatSearch.excerpt(chat, question)), FAST_MODEL).trim()
+
+    private fun ask(system: String, user: String, model: String): String {
+        val builder = MessageCreateParams.builder()
+            .model(model)
             .maxTokens(4000)
-            // 짧은 문장 다듬기라 effort 를 낮춰 속도와 요금을 줄임
-            .outputConfig(OutputConfig.builder().effort(OutputConfig.Effort.LOW).build())
-            .system(system)
+            // 짧은 작업이라 effort 를 낮춰 속도와 요금을 줄임
+            .outputConfig(BetaOutputConfig.builder().effort(BetaOutputConfig.Effort.LOW).build())
+        // 안전 분류기가 거절하면 서버가 알맞은 다른 모델로 자동 재시도 (Haiku 는 지원하지 않음)
+        if (model == CAREFUL_MODEL) builder.addBeta("server-side-fallback-2026-07-01").fallbacksDefault()
+        val params = builder
+            // 매번 같은 시스템 지침만 캐시 (5분 동안 다시 쓰면 그 부분 요금이 1/10).
+            // 매번 바뀌는 카톡 화면 글과 말한 내용은 캐시하지 않음
+            .systemOfBetaTextBlockParams(listOf(
+                BetaTextBlockParam.builder()
+                    .text(system)
+                    .cacheControl(BetaCacheControlEphemeral.builder().build())
+                    .build()
+            ))
             .addUserMessage(user)
             .build()
 
         val msg = try {
-            client.messages().create(params)
+            client.beta().messages().create(params)
         } catch (e: UnauthorizedException) {
             throw HelperException("API 키가 올바르지 않습니다. 설정에서 키를 확인해 주세요.")
         } catch (e: PermissionDeniedException) {
@@ -61,16 +80,33 @@ class Claude(apiKey: String, baseUrl: String? = null) {
             throw HelperException("인터넷 연결을 확인해 주세요.")
         }
 
-        if (msg.stopReason().orElse(null) == StopReason.REFUSAL) {
+        if (msg.stopReason().orElse(null) == BetaStopReason.REFUSAL) {
             throw HelperException("이 내용은 처리할 수 없다고 합니다. 다르게 말해 주세요.")
         }
+        val u = msg.usage()
+        lastUsage = Usage(
+            input = u.inputTokens(),
+            cacheRead = u.cacheReadInputTokens().orElse(0L),
+            cacheWrite = u.cacheCreationInputTokens().orElse(0L),
+            output = u.outputTokens(),
+        )
         val text = msg.content().mapNotNull { it.text().orElse(null)?.text() }.joinToString("")
         if (text.isBlank()) throw HelperException("답을 받지 못했습니다. 다시 해 주세요.")
         return text
     }
 
+    /** 마지막 요청의 토큰 사용량 (캐시가 잘 되는지 확인용) */
+    data class Usage(val input: Long, val cacheRead: Long, val cacheWrite: Long, val output: Long) {
+        fun describe() = "입력 ${input + cacheRead + cacheWrite}토큰 (캐시에서 읽음 $cacheRead, 캐시에 저장 $cacheWrite) · 출력 ${output}토큰"
+    }
+
+    @Volatile var lastUsage: Usage? = null
+        private set
+
     companion object {
-        // 가장 저렴한 모델 (한 번 다듬는 데 1원 안팎)
-        const val MODEL = "claude-haiku-5-5"
+        // '섬세하게' 설정: 뉘앙스·존댓말을 더 섬세하게 다루는 중간 등급 (한 번 다듬는 데 약 10원)
+        const val CAREFUL_MODEL = "claude-sonnet-5-5"
+        // 기본 다듬기와 대화에서 찾기: 가장 저렴한 모델 (한 번에 1~4원)
+        const val FAST_MODEL = "claude-haiku-5-5"
     }
 }

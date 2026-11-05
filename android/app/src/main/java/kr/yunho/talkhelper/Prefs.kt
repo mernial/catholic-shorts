@@ -34,6 +34,11 @@ class Prefs(ctx: Context) {
             ?: if (sp.getBoolean("autoSend", true)) SendMode.COUNTDOWN else SendMode.CONFIRM
         set(v) = sp.edit().putString("sendMode", v.name).apply()
 
+    /** 답장 다듬기를 더 섬세한(조금 비싼) 모델로 */
+    var carefulRewrite: Boolean
+        get() = sp.getBoolean("carefulRewrite", false)
+        set(v) = sp.edit().putBoolean("carefulRewrite", v).apply()
+
     /** 고급 받아쓰기(Whisper, 휴대폰 안에서) 사용 */
     var whisperOn: Boolean
         get() = sp.getBoolean("whisperOn", false)
@@ -43,6 +48,16 @@ class Prefs(ctx: Context) {
     var mode: Mode
         get() = runCatching { Mode.valueOf(sp.getString("mode", Mode.POLITE.name)!!) }.getOrDefault(Mode.POLITE)
         set(v) = sp.edit().putString("mode", v.name).apply()
+
+    /** 도우미 버튼 진단 기록 */
+    var bubbleDiag: String
+        get() = sp.getString("bubbleDiag", "") ?: ""
+        set(v) = sp.edit().putString("bubbleDiag", v).apply()
+
+    /** 마지막 다듬기 요청의 토큰 사용량 (캐시 확인용) */
+    var lastUsage: String
+        get() = sp.getString("lastUsage", "") ?: ""
+        set(v) = sp.edit().putString("lastUsage", v).apply()
 
     /** 마지막 카톡 보내기 시도 기록 (문제 진단용) */
     var lastSendLog: String

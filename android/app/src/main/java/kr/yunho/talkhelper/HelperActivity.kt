@@ -477,8 +477,7 @@ class HelperActivity : Activity() {
             if (partial.isNotBlank()) lastHeardAt = System.currentTimeMillis()
             val now = (heard.toString() + " " + partial).trim()
             showHeard(now.ifBlank { "듣고 있어요…" })
-            // "보내 줘", "끝" 이 들리면 바로 마무리
-            if (listening && EndSignal.isEnd(now)) stopListening()
+            // 말하는 중간(실시간 받아쓰기)에는 끊지 않음 — 한 마디가 끝난 뒤(onResults)에만 마무리 신호를 봄
         }
 
         override fun onResults(b: Bundle?) {
@@ -492,7 +491,7 @@ class HelperActivity : Activity() {
                 // 묻기는 한 문장이면 충분 → 바로 찾기
                 askMode && heard.isNotBlank() -> { listening = false; finishSpeech() }
                 // 신호 말이 나왔으면 마무리
-                EndSignal.isEnd(heard.toString()) -> { listening = false; finishSpeech() }
+                EndSignal.isEnd(heard.toString()) || EndSignal.isEndSegment(best) -> { listening = false; finishSpeech() }
                 else -> keepListening()
             }
         }
@@ -505,8 +504,9 @@ class HelperActivity : Activity() {
                 error == SpeechRecognizer.ERROR_NETWORK || error == SpeechRecognizer.ERROR_NETWORK_TIMEOUT ->
                     { resetMic(); showStatus("인터넷 연결을 확인해 주세요.", Ui.RED) }
                 else -> {
+                    val last = partial
                     if (partial.isNotBlank()) { heard.append(' ').append(partial); partial = "" }
-                    if ((askMode && heard.isNotBlank()) || EndSignal.isEnd(heard.toString())) { listening = false; finishSpeech() }
+                    if ((askMode && heard.isNotBlank()) || EndSignal.isEnd(heard.toString()) || (last.isNotBlank() && EndSignal.isEndSegment(last))) { listening = false; finishSpeech() }
                     else keepListening()
                 }
             }

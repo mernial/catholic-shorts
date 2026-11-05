@@ -56,6 +56,8 @@ class KakaoAccessibilityService : AccessibilityService() {
         instance = this
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
         diag("서비스 연결됨")
+        // 예전 '고급 받아쓰기'로 받아 둔 큰 파일(약 550MB)이 남아 있으면 지움
+        Thread { filesDir.listFiles { f -> f.name.startsWith("ggml-") }?.forEach { it.delete() } }.start()
         updateBubble()
     }
 

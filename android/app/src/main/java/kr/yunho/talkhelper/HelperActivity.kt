@@ -40,6 +40,8 @@ class HelperActivity : Activity() {
     companion object {
         /** 버튼을 누른 순간 카톡 화면에 보이던 글 (대화 맥락) */
         @Volatile var pendingScreenText: String? = null
+        /** 버튼을 누른 순간의 카톡 방 이름 */
+        @Volatile var pendingTitle: String? = null
         /** true 면 '대화에서 찾기'로 바로 듣기 시작 (도우미 버튼을 꾹 눌러 🔎 고른 경우) */
         const val EXTRA_ASK = "ask"
         private const val REQ_MIC = 7
@@ -106,6 +108,8 @@ class HelperActivity : Activity() {
     private fun start() {
         screenText = pendingScreenText
         pendingScreenText = null
+        roomTitle = pendingTitle
+        pendingTitle = null
         heard.clear(); partial = ""; lastSpoken = ""
         mode = prefs.mode   // 동그라미 메뉴에서 고른 말투
         val ask = intent?.getBooleanExtra(EXTRA_ASK, false) == true
@@ -481,10 +485,15 @@ class HelperActivity : Activity() {
     private var tts: android.speech.tts.TextToSpeech? = null
 
     /** 이 대화방을 미리 '내보내기'로 저장해 뒀으면 그 전체 대화 + 지금 화면 */
+    private var roomTitle: String? = null
+
     private fun chatForThisRoom(): Pair<String, String?> {
         val screen = screenText.orEmpty()
         val top = screen.lines().take(8).map { it.trim() }
-        val room = AskActivity.savedRooms(this).firstOrNull { name -> top.any { it == name || it.startsWith(name) } }
+        val rooms = AskActivity.savedRooms(this)
+        // 1) 방 이름으로 (내보낼 때 기억한 짝, 띄어쓰기·인원수 차이 무시)  2) 화면 윗줄 글자로
+        val room = kr.yunho.talkhelper.core.RoomMatch.find(roomTitle, rooms, prefs.roomAliases())
+            ?: rooms.firstOrNull { name -> top.any { it == name || it.startsWith(name) } }
         val saved = room?.let { java.io.File(AskActivity.chatsDir(this), "$it.txt").readText() }.orEmpty()
         val chat = if (saved.isNotBlank()) "$saved\n\n[지금 카톡 화면]\n$screen" else screen
         return chat to room
@@ -520,6 +529,7 @@ class HelperActivity : Activity() {
     /** 카톡 메뉴를 대신 눌러 이 방 대화를 이 앱으로 내보내고, 저장되면 '대화에서 찾기'가 이어서 답함 */
     private fun exportThenAsk(question: String, svc: KakaoAccessibilityService) {
         AskActivity.pendingQuestion = question to System.currentTimeMillis()
+        AskActivity.pendingTitle = roomTitle
         finish()   // 카드를 닫아야 카톡 메뉴를 누를 수 있음
         Bg.main.postDelayed({
             // 막히면 덮개에 직접 누를 순서가 크게 남음 (질문은 5분 동안 기억)

@@ -61,6 +61,16 @@ class Prefs(ctx: Context) {
         set(v) = sp.edit().putString("lastUsage", v).apply()
 
     /** 마지막 카톡 보내기 시도 기록 (문제 진단용) */
+    /** 카톡 화면의 방 이름 → 내보내 저장한 방 (한 번 내보낸 방을 다음에 바로 알아보려고) */
+    fun roomAliases(): Map<String, String> =
+        (sp.getString("roomAliases", "") ?: "").lines().mapNotNull { l ->
+            l.split('\t').takeIf { it.size == 2 }?.let { it[0] to it[1] }
+        }.toMap()
+    fun addRoomAlias(key: String, room: String) {
+        val m = roomAliases() + (key to room)
+        sp.edit().putString("roomAliases", m.entries.joinToString("\n") { "${it.key}\t${it.value}" }).apply()
+    }
+
     /** 대화 내보내기·찾기 과정 기록 (안 될 때 원인 확인용, 최근 30줄) */
     var exportLog: String
         get() = sp.getString("exportLog", "") ?: ""

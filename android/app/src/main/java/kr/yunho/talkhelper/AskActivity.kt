@@ -33,6 +33,8 @@ class AskActivity : Activity(), TextToSpeech.OnInitListener {
         const val EXTRA_SCREEN = "screenText"
         /** 카톡 위 카드에서 '내보내고 찾기'를 고른 질문 (내보낸 대화가 들어오면 이어서 답함) */
         @Volatile var pendingQuestion: Pair<String, Long>? = null
+        /** 내보낸 카톡 방의 화면 이름 (저장된 대화와 짝지어 기억) */
+        @Volatile var pendingTitle: String? = null
         private const val REQ_SPEECH = 11
         private const val REQ_FOLDER = 12
         private const val SCREEN = "\u0000screen"   // '지금 화면' 을 나타내는 내부 이름
@@ -136,6 +138,12 @@ class AskActivity : Activity(), TextToSpeech.OnInitListener {
                 return@run
             }
             Prefs(this).logExport("저장: '${saved.room}' 사진 ${saved.photos}장")
+            // 이 방을 다음부터 바로 알아보도록 화면 이름과 짝지어 둠
+            pendingTitle?.let { t ->
+                Prefs(this).addRoomAlias(kr.yunho.talkhelper.core.RoomMatch.norm(t), saved.room)
+                Prefs(this).logExport("방 이름 기억: '$t' = '${saved.room}'")
+            }
+            pendingTitle = null
             selected = saved.room
             val photos = if (saved.photos > 0) " 사진 ${saved.photos}장도 함께 저장했어요." else ""
             Toast.makeText(this, "'${saved.room}' 대화를 저장했어요.$photos 이제 물어보세요.", Toast.LENGTH_LONG).show()

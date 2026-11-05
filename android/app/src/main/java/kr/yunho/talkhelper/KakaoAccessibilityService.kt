@@ -128,6 +128,23 @@ class KakaoAccessibilityService : AccessibilityService() {
      * 카톡 화면에 보이는 글. 오른쪽에 붙은 말풍선(내가 보낸 말)은 앞에 "나: " 를 붙여
      * AI 가 누가 한 말인지 헷갈리지 않게 함 (상대가 나를 부르는 '신부님' 같은 호칭을 상대에게 쓰는 일 방지)
      */
+    /** 지금 카톡 대화방 이름 (화면 맨 위 왼쪽에 있는 제목 글자) */
+    fun chatTitle(): String? {
+        val root = kakaoRoot() ?: return null
+        val win = bounds(root)
+        var best: AccessibilityNodeInfo? = null
+        walk(root) { n ->
+            val t = n.text?.toString()?.trim()
+            if (!t.isNullOrEmpty() && !n.isEditable && n.isVisibleToUser) {
+                val b = bounds(n)
+                val top = b.top - win.top < win.height() * 0.15 && b.left - win.left < win.width() * 0.6
+                if (top && !Regex("^\\d{1,2}:\\d{2}$").matches(t) && (best == null || b.top < bounds(best!!).top)) best = n
+            }
+            false
+        }
+        return best?.text?.toString()?.trim()
+    }
+
     fun screenTexts(): List<String> {
         val root = kakaoRoot() ?: return emptyList()
         return textsIn(root, bounds(root))
@@ -681,6 +698,7 @@ class KakaoAccessibilityService : AccessibilityService() {
     private fun openHelper(ask: Boolean = false) {
         closeMenu()
         HelperActivity.pendingScreenText = screenTexts().joinToString("\n")
+        HelperActivity.pendingTitle = chatTitle()
         val intent = Intent(this, HelperActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             .putExtra(HelperActivity.EXTRA_ASK, ask)

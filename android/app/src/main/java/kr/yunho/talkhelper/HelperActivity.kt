@@ -384,7 +384,7 @@ class HelperActivity : Activity() {
     }
 
     private fun listen() {
-        val r = recognizer ?: SpeechRecognizer.createSpeechRecognizer(this).also {
+        val r = recognizer ?: newRecognizer().also {
             it.setRecognitionListener(listener)
             recognizer = it
         }
@@ -394,7 +394,28 @@ class HelperActivity : Activity() {
             .putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             .putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 3000L)
             .putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 3000L)
+        addHints(i)
         runCatching { r.startListening(i) }.onFailure { showStatus("음성 인식을 시작하지 못했어요.", Ui.RED); resetMic() }
+    }
+
+    /**
+     * 음성 인식기: 구글 음성 인식이 있으면 그것을 씀 (삼성 폰은 기본이 삼성 인식기로 잡혀 있어 한국어 정확도가 낮을 수 있음)
+     */
+    private fun newRecognizer(): SpeechRecognizer {
+        val google = android.content.ComponentName(
+            "com.google.android.googlequicksearchbox", "com.google.android.voicesearch.serviceapi.GoogleRecognitionService")
+        val hasGoogle = runCatching {
+            packageManager.queryIntentServices(Intent(android.speech.RecognitionService.SERVICE_INTERFACE), 0)
+                .any { it.serviceInfo.packageName == google.packageName && it.serviceInfo.name == google.className }
+        }.getOrDefault(false)
+        return if (hasGoogle) SpeechRecognizer.createSpeechRecognizer(this, google) else SpeechRecognizer.createSpeechRecognizer(this)
+    }
+
+    /** 카톡 화면의 이름·세례명·방 이름과 자주 쓰는 호칭을 인식기에 미리 알려 줌 (안드로이드 13 이상) */
+    private fun addHints(i: Intent) {
+        if (android.os.Build.VERSION.SDK_INT < 33) return
+        val words = kr.yunho.talkhelper.core.SpeechHints.words(screenText, roomTitle)
+        i.putStringArrayListExtra(RecognizerIntent.EXTRA_BIASING_STRINGS, ArrayList(words))
     }
 
     private fun stopListening() {
@@ -705,7 +726,7 @@ class HelperActivity : Activity() {
         if (!hasMic() || !SpeechRecognizer.isRecognitionAvailable(this)) return
         stopConfirm()
         resultTitle.text = "🎤 듣고 있어요…  \"보내\" · \"다시\" · \"취소\""
-        val rec = SpeechRecognizer.createSpeechRecognizer(this)
+        val rec = newRecognizer()
         confirmRec = rec
         rec.setRecognitionListener(object : android.speech.RecognitionListener {
             override fun onReadyForSpeech(p: Bundle?) {}

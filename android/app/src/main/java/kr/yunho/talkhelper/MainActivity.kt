@@ -261,6 +261,11 @@ class MainActivity : Activity() {
             box.add(Ui.button(this, "💬  카톡 열기", sp = 22f) { startActivity(launch) }, 10)
         }
 
+        body.add(Ui.button(this, "🔎  대화에서 찾기", sp = 20f) {
+            startActivity(Intent(this, AskActivity::class.java))
+        }.apply { minHeight = Ui.dp(this@MainActivity, 76) }, 18)
+        body.add(Ui.text(this, "카톡 대화를 이 앱으로 내보내 두면, 예전에 무슨 말을 했는지 물어볼 수 있어요.", 14f, color = Ui.MUTED), 4)
+
         body.add(Ui.button(this, "👨‍👩‍👧  가족에게 설정 보내기", Ui.CARD, sp = 18f) { shareSetup() }, 26)
         body.add(Ui.text(this, "부모님 폰에 앱을 설치한 뒤, 이 버튼으로 카톡에 설정을 보내면 부모님은 복사만 하시면 됩니다.", 14f, color = Ui.MUTED), 4)
         body.add(Ui.button(this, "자세한 설정", Ui.CARD, sp = 16f) { showAdvanced = true; render() }, 16)

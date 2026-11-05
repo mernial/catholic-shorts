@@ -1,0 +1,228 @@
+package kr.yunho.talkhelper
+
+import android.app.Activity
+import android.app.AlertDialog
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.os.Bundle
+import android.speech.RecognizerIntent
+import android.speech.tts.TextToSpeech
+import android.view.View
+import android.widget.Button
+import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.widget.TextView
+import android.widget.Toast
+import kr.yunho.talkhelper.Ui.add
+import kr.yunho.talkhelper.core.ChatSearch
+import kr.yunho.talkhelper.core.HelperException
+import java.io.File
+import java.util.Locale
+import java.util.zip.ZipInputStream
+
+/**
+ * 대화에서 찾기.
+ *  - 카톡 '대화 내용 내보내기'에서 이 앱으로 공유한 대화를 저장해 두고
+ *  - 또는 카톡 위 도우미 카드에서 넘겨준 '지금 화면의 대화'에서
+ *  말이나 글로 물어보면 Claude 가 찾아 큰 글씨로 보여 주고 읽어 줌.
+ */
+class AskActivity : Activity(), TextToSpeech.OnInitListener {
+
+    companion object {
+        const val EXTRA_SCREEN = "screenText"
+        private const val REQ_SPEECH = 11
+        private const val SCREEN = "\u0000screen"   // '지금 화면' 을 나타내는 내부 이름
+
+        fun chatsDir(c: Context) = File(c.filesDir, "chats").apply { mkdirs() }
+        fun savedRooms(c: Context): List<String> =
+            chatsDir(c).listFiles { f -> f.name.endsWith(".txt") }.orEmpty()
+                .sortedByDescending { it.lastModified() }.map { it.name.removeSuffix(".txt") }
+    }
+
+    private lateinit var body: LinearLayout
+    private var screenText: String? = null
+    private var selected: String? = null
+    private lateinit var question: android.widget.EditText
+    private lateinit var answer: TextView
+    private lateinit var status: TextView
+    private var tts: TextToSpeech? = null
+    private var ttsReady = false
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        tts = TextToSpeech(this, this)
+        body = Ui.vbox(this, 18)
+        setContentView(ScrollView(this).apply { fitsSystemWindows = true; addView(body) })
+        handle(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handle(intent)
+    }
+
+    override fun onInit(status: Int) {
+        if (status == TextToSpeech.SUCCESS) { tts?.language = Locale.KOREAN; ttsReady = true }
+    }
+
+    override fun onDestroy() {
+        tts?.shutdown()
+        super.onDestroy()
+    }
+
+    // ───────── 받은 것 처리 ─────────
+
+    private fun handle(i: Intent) {
+        i.getStringExtra(EXTRA_SCREEN)?.takeIf { it.isNotBlank() }?.let { screenText = it; selected = SCREEN }
+        if (i.action == Intent.ACTION_SEND) {
+            val text = runCatching { readShared(i) }.getOrNull()
+            if (text.isNullOrBlank()) {
+                Toast.makeText(this, "대화 파일을 읽지 못했어요. 카톡에서 '텍스트만 보내기'로 다시 해 주세요.", Toast.LENGTH_LONG).show()
+            } else {
+                val room = (ChatSearch.roomName(text) ?: "내보낸 대화").replace(Regex("[\\\\/:*?\"<>|]"), "_").take(60)
+                File(chatsDir(this), "$room.txt").writeText(text)
+                selected = room
+                Toast.makeText(this, "'$room' 대화를 저장했어요. 이제 물어보세요.", Toast.LENGTH_LONG).show()
+            }
+        }
+        if (selected == null) selected = savedRooms(this).firstOrNull()
+        render()
+    }
+
+    /** 공유받은 글이나 파일(.txt 또는 .zip) 읽기 */
+    private fun readShared(i: Intent): String? {
+        @Suppress("DEPRECATION")
+        val uri: Uri? = if (Build.VERSION.SDK_INT >= 33) i.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+        else i.getParcelableExtra(Intent.EXTRA_STREAM)
+        if (uri == null) return i.getStringExtra(Intent.EXTRA_TEXT)
+        val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return null
+        // zip 이면 안의 .txt 를 꺼냄
+        if (bytes.size > 4 && bytes[0] == 'P'.code.toByte() && bytes[1] == 'K'.code.toByte()) {
+            ZipInputStream(bytes.inputStream()).use { z ->
+                while (true) {
+                    val e = z.nextEntry ?: break
+                    if (!e.isDirectory && e.name.endsWith(".txt", ignoreCase = true)) return z.readBytes().toString(Charsets.UTF_8)
+                }
+            }
+            return null
+        }
+        return bytes.toString(Charsets.UTF_8)
+    }
+
+    private fun chatOf(name: String?): String? = when (name) {
+        null -> null
+        SCREEN -> screenText
+        else -> File(chatsDir(this), "$name.txt").takeIf { it.exists() }?.readText()
+    }
+
+    // ───────── 화면 ─────────
+
+    private fun render() {
+        body.removeAllViews()
+        body.add(Ui.text(this, "🔎 대화에서 찾기", 28f, bold = true), 0)
+        body.add(Ui.text(this, "궁금한 것을 말하거나 쓰면, 대화에서 찾아 알려 드려요.", 17f, color = Ui.MUTED), 6)
+
+        // 어느 대화에서 찾을지
+        body.add(Ui.text(this, "어느 대화에서 찾을까요?", 18f, bold = true), 20)
+        val sources = buildList {
+            if (screenText != null) add(SCREEN)
+            addAll(savedRooms(this@AskActivity))
+        }
+        if (sources.isEmpty()) {
+            body.add(Ui.text(this,
+                "아직 저장된 대화가 없어요.\n\n카톡 대화방 → 오른쪽 위 ☰ → ⚙ 설정 → '대화 내용 내보내기' → '텍스트만 보내기' → 앱 목록에서 '${getString(R.string.app_name)}'을 고르세요.",
+                17f), 8)
+        }
+        for (s in sources) {
+            val label = if (s == SCREEN) "📱 지금 카톡 화면의 대화" else "💬 $s"
+            val on = s == selected
+            body.add(Ui.button(this, label, if (on) Ui.YELLOW else Ui.CARD, sp = 18f) { selected = s; render() }
+                .apply { background = Ui.rounded(this@AskActivity, if (on) Ui.YELLOW else Ui.CARD, 18, if (on) Ui.BROWN else Ui.LINE) }, 8)
+        }
+        if (selected != null && selected != SCREEN) {
+            body.add(Ui.button(this, "이 대화 지우기", Ui.CARD, Ui.RED, sp = 14f) { confirmDelete(selected!!) }, 6)
+        }
+        body.add(Ui.text(this, "대화를 새로 내보내면 같은 방은 새 내용으로 바뀝니다.", 13f, color = Ui.MUTED), 6)
+
+        // 질문
+        body.add(Ui.text(this, "무엇을 찾을까요?", 18f, bold = true), 22)
+        question = Ui.input(this, "예) 성가대 연습 날짜가 언제였지?", multiline = true)
+        body.add(question, 8)
+        val row = Ui.hbox(this)
+        row.add(Ui.button(this, "🎤 말로 묻기", Ui.BROWN, Ui.YELLOW, sp = 20f) { listen() })
+        row.add(Ui.button(this, "🔎 찾기", sp = 20f) { search() })
+        body.add(row, 10)
+
+        status = Ui.text(this, "", 16f, color = Ui.MUTED).apply { visibility = View.GONE }
+        body.add(status, 10)
+        answer = Ui.text(this, "", 21f).apply {
+            background = Ui.rounded(this@AskActivity, Ui.CARD, 18)
+            val p = Ui.dp(this@AskActivity, 16); setPadding(p, p, p, p)
+            visibility = View.GONE
+            setTextIsSelectable(true)
+        }
+        body.add(answer, 12)
+        body.add(Ui.button(this, "🔊 다시 듣기", Ui.CARD, sp = 17f) { speak(answer.text.toString()) }.apply { visibility = View.GONE; tag = "replay" }, 8)
+        body.add(View(this), 40)
+    }
+
+    private fun confirmDelete(name: String) {
+        AlertDialog.Builder(this).setMessage("'$name' 대화를 이 앱에서 지울까요? (카톡 대화는 지워지지 않습니다)")
+            .setPositiveButton("지우기") { _, _ ->
+                File(chatsDir(this), "$name.txt").delete()
+                selected = savedRooms(this).firstOrNull() ?: screenText?.let { SCREEN }
+                render()
+            }.setNegativeButton("취소", null).show()
+    }
+
+    // ───────── 묻기 ─────────
+
+    private fun listen() {
+        val i = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+            .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            .putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ko-KR")
+            .putExtra(RecognizerIntent.EXTRA_PROMPT, "무엇을 찾을까요?")
+        runCatching { startActivityForResult(i, REQ_SPEECH) }
+            .onFailure { Toast.makeText(this, "이 휴대폰에서 음성 인식을 쓸 수 없어요. 글로 써 주세요.", Toast.LENGTH_LONG).show() }
+    }
+
+    @Deprecated("Activity 기본 결과 받기")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != REQ_SPEECH || resultCode != RESULT_OK) return
+        val said = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull() ?: return
+        question.setText(said)
+        search()
+    }
+
+    private fun search() {
+        val q = question.text.toString().trim()
+        if (q.isEmpty()) { Toast.makeText(this, "무엇을 찾을지 말하거나 써 주세요.", Toast.LENGTH_SHORT).show(); return }
+        val chat = chatOf(selected)
+        if (chat.isNullOrBlank()) { Toast.makeText(this, "먼저 찾을 대화를 골라 주세요.", Toast.LENGTH_SHORT).show(); return }
+        val claude = ClaudeProvider.get(this)
+        if (claude == null) { Toast.makeText(this, "먼저 앱 설정을 마쳐 주세요.", Toast.LENGTH_LONG).show(); return }
+        val room = selected?.takeIf { it != SCREEN }
+        status.text = "대화에서 찾는 중… 잠시만요"
+        status.visibility = View.VISIBLE
+        answer.visibility = View.GONE
+        Bg.run({ claude.answer(q, chat, room) }) { r ->
+            if (isFinishing) return@run
+            status.visibility = View.GONE
+            val text = r.getOrElse { (it as? HelperException)?.message ?: "문제가 생겼어요: ${it.message}" }
+            answer.text = text
+            answer.visibility = View.VISIBLE
+            body.findViewWithTag<Button>("replay")?.visibility = View.VISIBLE
+            if (r.isSuccess) speak(text)
+            (body.parent as? ScrollView)?.post { (body.parent as ScrollView).smoothScrollTo(0, answer.top) }
+        }
+    }
+
+    private fun speak(text: String) {
+        if (!ttsReady || text.isBlank()) return
+        tts?.setSpeechRate(0.9f)
+        tts?.speak(text.take(TextToSpeech.getMaxSpeechInputLength() - 10), TextToSpeech.QUEUE_FLUSH, null, "ask")
+    }
+}

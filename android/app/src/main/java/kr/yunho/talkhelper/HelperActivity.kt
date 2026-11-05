@@ -199,6 +199,14 @@ class HelperActivity : Activity() {
             typedRow.visibility = View.VISIBLE
             typedInput.requestFocus()
         }, weight = 0.7f)
+        // 지금 카톡 화면에 보이는 대화에서 묻기
+        talkRow.add(small("🔎", sp = 15f) {
+            stopRecognizer(); resetMic()
+            startActivity(Intent(ctx, AskActivity::class.java)
+                .putExtra(AskActivity.EXTRA_SCREEN, screenText ?: "")
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            finish()
+        }, weight = 0.7f)
         card.add(talkRow, 8)
         resetMic()
         heardView = Ui.text(ctx, "끝에 \"보내 줘\"라고 하면 바로 보냅니다", 15f, color = Ui.MUTED).apply { maxLines = 3 }

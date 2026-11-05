@@ -35,6 +35,10 @@ class Claude(apiKey: String, baseUrl: String? = null) {
         ask(Prompts.system(mode), Prompts.user(mode, spoken, screenText, myName, myRole))
             .trim().removeSurrounding("\"").trim()
 
+    /** 카톡 대화에서 [question] 에 대한 답 찾기. [chat] 이 길면 관련 부분만 골라 보냄 */
+    fun answer(question: String, chat: String, room: String?): String =
+        ask(Prompts.ASK_SYSTEM, Prompts.askUser(question, room, ChatSearch.excerpt(chat, question))).trim()
+
     private fun ask(system: String, user: String): String {
         val params = MessageCreateParams.builder()
             .model(MODEL)

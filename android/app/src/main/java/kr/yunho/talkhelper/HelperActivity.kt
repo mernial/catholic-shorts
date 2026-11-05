@@ -514,6 +514,12 @@ class HelperActivity : Activity() {
         // 1) 방 이름으로 (내보낼 때 기억한 짝, 띄어쓰기·인원수 차이 무시)  2) 화면 윗줄 글자로
         val room = kr.yunho.talkhelper.core.RoomMatch.find(roomTitle, rooms, prefs.roomAliases())
             ?: rooms.firstOrNull { name -> top.any { it == name || it.startsWith(name) } }
+            // 3) 이름으로 못 찾으면 대화 내용으로: 화면에 보이는 메시지가 들어 있는 저장된 대화
+            ?: kr.yunho.talkhelper.core.RoomMatch.byContent(screen.lines(), rooms.associateWith { ChatStore.chatText(this, it).orEmpty() })
+                ?.also { r ->
+                    roomTitle?.let { prefs.addRoomAlias(kr.yunho.talkhelper.core.RoomMatch.norm(it), r) }
+                    prefs.logExport("대화 내용으로 방 알아봄: '$r'")
+                }
         val saved = room?.let { java.io.File(AskActivity.chatsDir(this), "$it.txt").readText() }.orEmpty()
         val chat = if (saved.isNotBlank()) "$saved\n\n[지금 카톡 화면]\n$screen" else screen
         return chat to room
@@ -642,12 +648,16 @@ class HelperActivity : Activity() {
             Toast.makeText(app, "카톡 대화방에서 직접 찾아 주세요.", Toast.LENGTH_LONG).show()
             return
         }
-        svc.searchInChat(word, { ok ->
-            if (!ok) {
-                (app.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("찾을말", word))
-                Toast.makeText(app, "대화방 위쪽 🔍를 누르고 '$word'를 붙여 넣어 찾아 주세요.", Toast.LENGTH_LONG).show()
+        // 대화방을 위로 넘기며 그 메시지가 보일 때까지 찾아가서 멈춤 (카톡 검색창에 기대지 않음)
+        Bg.main.postDelayed({
+            svc.scrollToText(word) { found ->
+                if (found) Toast.makeText(app, "찾은 메시지예요", Toast.LENGTH_SHORT).show()
+                else {
+                    (app.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("찾을말", word))
+                    Toast.makeText(app, "메시지를 찾지 못했어요. 대화방 위쪽 🔍를 누르고 '$word'를 붙여 넣어 찾아 주세요.", Toast.LENGTH_LONG).show()
+                }
             }
-        })
+        }, 400)
     }
 
     /** 읽어 주기. [then] 은 다 읽은 뒤 (읽지 못하면 바로) 실행 */

@@ -489,12 +489,36 @@ class HelperActivity : Activity() {
     }
 
     private fun askChat(question: String) {
-        val claude = ClaudeProvider.get(this) ?: return showStatus("⚠️ 아직 준비가 안 됐어요. 앱을 열어 설정을 마쳐 주세요.", Ui.RED)
+        if (ClaudeProvider.get(this) == null) return showStatus("⚠️ 아직 준비가 안 됐어요. 앱을 열어 설정을 마쳐 주세요.", Ui.RED)
         val (chat, room) = chatForThisRoom()
-        if (chat.isBlank()) return showStatus("화면에서 대화를 읽지 못했어요. 카톡 대화방에서 다시 눌러 주세요.", Ui.RED)
         resultBox.visibility = View.GONE
         answerBox.visibility = View.GONE
-        showStatus(if (room != null) "🔎 '$room' 대화 전체에서 찾는 중…" else "🔎 화면의 대화에서 찾는 중…")
+        val svc = KakaoAccessibilityService.instance
+        // 내보내 저장해 둔 대화가 없으면: 카톡 대화방을 위로 넘기며 예전 대화를 모아서 찾음
+        if (room == null && svc != null) {
+            showStatus("📜 예전 대화를 넘겨 보며 모으는 중… 잠시만요")
+            svc.collectHistory(progress = { n ->
+                if (!isFinishing) showStatus("📜 예전 대화를 넘겨 보며 모으는 중… ${n}쪽")
+            }) { lines ->
+                if (isFinishing) return@collectHistory
+                val history = lines.joinToString("\n")
+                val all = if (history.length > chat.length) history else chat
+                if (all.isBlank()) showStatus("화면에서 대화를 읽지 못했어요. 카톡 대화방에서 다시 눌러 주세요.", Ui.RED)
+                else answerFrom(question, all, null, lines.size)
+            }
+            return
+        }
+        if (chat.isBlank()) return showStatus("화면에서 대화를 읽지 못했어요. 카톡 대화방에서 다시 눌러 주세요.", Ui.RED)
+        answerFrom(question, chat, room, 0)
+    }
+
+    private fun answerFrom(question: String, chat: String, room: String?, collectedLines: Int) {
+        val claude = ClaudeProvider.get(this) ?: return
+        showStatus(when {
+            room != null -> "🔎 '$room' 대화 전체에서 찾는 중…"
+            collectedLines > 0 -> "🔎 모은 대화 ${collectedLines}줄에서 찾는 중…"
+            else -> "🔎 화면의 대화에서 찾는 중…"
+        })
         Bg.run({ claude.answer(question, chat, room) }) { r ->
             if (isFinishing) return@run
             askMode = false
@@ -502,7 +526,7 @@ class HelperActivity : Activity() {
                 val (text, word) = kr.yunho.talkhelper.core.ChatSearch.splitAnswer(full)
                 showStatus(null)
                 answerKeyword = word
-                answerText.text = text
+                answerText.text = if (room == null && text.contains("찾지 못")) "$text\n\n※ 더 예전 대화는 카톡 '대화 내용 내보내기'로 이 앱에 저장해 두면 처음부터 다 찾아 드려요." else text
                 // 사진을 찾은 경우: 함께 저장해 둔 사진 중 그 무렵 것을 보여 줌 (사진은 휴대폰 밖으로 안 나감)
                 answerPhotos.removeAllViews()
                 val at = kr.yunho.talkhelper.core.PhotoFind.photoTime(full)

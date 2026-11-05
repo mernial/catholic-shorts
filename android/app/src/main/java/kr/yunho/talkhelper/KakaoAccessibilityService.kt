@@ -129,10 +129,14 @@ class KakaoAccessibilityService : AccessibilityService() {
      */
     fun screenTexts(): List<String> {
         val root = kakaoRoot() ?: return emptyList()
-        val win = bounds(root)
+        return textsIn(root, bounds(root))
+    }
+
+    /** [node] 안의 글자들. 창 [win] 오른쪽에 붙은 말풍선은 "나: " 표시 */
+    private fun textsIn(node: AccessibilityNodeInfo, win: Rect): List<String> {
         val w = win.width().coerceAtLeast(1)
         val out = ArrayList<String>()
-        walk(root) { n ->
+        walk(node) { n ->
             if (!n.isEditable) {
                 val t = n.text?.toString()?.trim()
                 if (!t.isNullOrEmpty()) {
@@ -145,6 +149,61 @@ class KakaoAccessibilityService : AccessibilityService() {
             out.size > 400
         }
         return out
+    }
+
+    // ───────── 예전 대화 모으기 (위로 넘기며) ─────────
+
+    /** 대화 목록 (위아래로 넘길 수 있는 가장 큰 칸) */
+    private fun chatList(root: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+        val lists = ArrayList<AccessibilityNodeInfo>()
+        walk(root) { n -> if (n.isScrollable && n.isVisibleToUser) lists += n; false }
+        return lists.maxByOrNull { bounds(it).let { b -> b.width().toLong() * b.height() } }
+    }
+
+    @Volatile private var collecting = false
+
+    /**
+     * 사용자가 '찾기'를 했을 때, 지금 대화방을 위로 넘기며 예전 대화 글을 모음.
+     * [maxPages] 쪽 또는 [maxMs] 가 지나거나 대화 처음에 닿으면 멈추고, 원래 자리(맨 아래)로 돌아간 뒤 [done].
+     * 모은 글은 휴대폰 안에 있고, 질문과 관련된 부분만 AI 에 보냄.
+     */
+    fun collectHistory(maxPages: Int = 40, maxMs: Long = 15_000, progress: (Int) -> Unit, done: (List<String>) -> Unit) {
+        if (collecting) return
+        collecting = true
+        val start = System.currentTimeMillis()
+        var acc: List<String> = emptyList()
+        var pages = 0
+        var scrolled = 0
+
+        fun finish() {
+            // 넘긴 만큼 다시 아래로 (맨 아래 최신 대화로 돌아감)
+            fun back(left: Int) {
+                val list = chatList(kakaoRoot())
+                if (left <= 0 || list == null || !list.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)) {
+                    collecting = false
+                    done(acc)
+                    return
+                }
+                handler.postDelayed({ back(left - 1) }, 120)
+            }
+            back(scrolled + 3)
+        }
+
+        fun step() {
+            val root = kakaoRoot()
+            val list = chatList(root)
+            if (root == null || list == null) { finish(); return }
+            val page = textsIn(list, bounds(root))
+            val top = acc.isNotEmpty() && kr.yunho.talkhelper.core.History.reachedTop(acc, page)
+            acc = kr.yunho.talkhelper.core.History.prepend(acc, page)
+            pages++
+            progress(pages)
+            if (top || pages >= maxPages || System.currentTimeMillis() - start > maxMs) { finish(); return }
+            if (!list.performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)) { finish(); return }
+            scrolled++
+            handler.postDelayed({ step() }, 450)   // 예전 대화가 그려질 때까지 잠깐 기다림
+        }
+        step()
     }
 
     private fun findEditable(root: AccessibilityNodeInfo?) = walk(root) { it.isEditable && it.isVisibleToUser }

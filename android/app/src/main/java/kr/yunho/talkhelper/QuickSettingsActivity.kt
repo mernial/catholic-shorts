@@ -34,6 +34,9 @@ class QuickSettingsActivity : Activity() {
         }
 
         card.add(Ui.button(this, "닫기", sp = 19f) { finish() }, 18)
+
+        // 카톡 위 🎤 버튼 끄기 (다시 켜려면 앱에서)
+        card.add(Ui.button(this, "🎤 버튼 끄기", Ui.CARD, Ui.RED, sp = 16f) { confirmTurnOff() }, 10)
         paint()
 
         val root = android.widget.FrameLayout(this).apply {
@@ -61,6 +64,20 @@ class QuickSettingsActivity : Activity() {
             b.text = b.text.toString().removePrefix("✅ ").let { if (on) "✅ $it" else it }
         }
         sendButtons.forEach { (m, b) -> mark(b, m == prefs.sendMode) }
+    }
+
+    private fun confirmTurnOff() {
+        android.app.AlertDialog.Builder(this)
+            .setTitle("카톡 위 🎤 버튼을 끌까요?")
+            .setMessage("끄면 카톡에서 버튼이 사라져요.\n\n다시 켜려면 '${getString(R.string.app_name)}' 앱을 열고 맨 위의 '켜기' 스위치를 눌러 주세요.")
+            .setPositiveButton("끄기") { _, _ ->
+                prefs.enabled = false
+                KakaoAccessibilityService.instance?.redrawBubble()
+                Toast.makeText(this, "버튼을 껐어요. 다시 켜려면 '${getString(R.string.app_name)}' 앱에서 켜 주세요.", Toast.LENGTH_LONG).show()
+                finish()
+            }
+            .setNegativeButton("취소", null)
+            .show()
     }
 
     private fun saved() = Toast.makeText(this, "저장했어요", Toast.LENGTH_SHORT).show()

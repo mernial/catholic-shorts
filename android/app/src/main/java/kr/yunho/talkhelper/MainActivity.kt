@@ -312,6 +312,9 @@ class MainActivity : Activity() {
         }, weight = 0.6f)
         q.add(fine, weight = 1f)
         body.add(q, 8)
+        body.add(Ui.text(this, "※ 섬세하게로 하면 다듬는 데 시간이 더 걸려 보내기가 조금 늦어져요.", 15f, color = Ui.MUTED).apply {
+            gravity = android.view.Gravity.CENTER
+        }, 6)
         body.add(View(this), 40)
     }
 

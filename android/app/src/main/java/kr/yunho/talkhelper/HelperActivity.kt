@@ -269,6 +269,7 @@ class HelperActivity : Activity() {
         val answerRow = Ui.hbox(ctx)
         answerRow.add(small("📍 대화에서 보기", Ui.BROWN, Ui.YELLOW, sp = 15f) { goToMessage() }, weight = 1.4f)
         answerRow.add(small("🔊 듣기", sp = 15f) { speak(answerText.text.toString()) })
+        answerRow.add(small("⏹ 그만", sp = 15f) { tts?.stop() })
         answerBox.add(answerRow, 8)
         card.add(answerBox, 8)
 

@@ -89,6 +89,12 @@ class AskActivity : Activity(), TextToSpeech.OnInitListener {
         if (status == TextToSpeech.SUCCESS) { tts?.language = Locale.KOREAN; ttsReady = true }
     }
 
+    // 화면을 떠나면 읽기를 멈춤
+    override fun onStop() {
+        tts?.stop()
+        super.onStop()
+    }
+
     override fun onDestroy() {
         tts?.shutdown()
         super.onDestroy()
@@ -232,7 +238,10 @@ class AskActivity : Activity(), TextToSpeech.OnInitListener {
         body.add(answer, 12)
         photoBox = Ui.vbox(this).apply { visibility = View.GONE }
         body.add(photoBox, 8)
-        body.add(Ui.button(this, "🔊 다시 듣기", Ui.CARD, sp = 17f) { speak(answer.text.toString()) }.apply { visibility = View.GONE; tag = "replay" }, 8)
+        val listenRow = Ui.hbox(this).apply { visibility = View.GONE; tag = "replay" }
+        listenRow.add(Ui.button(this, "🔊 다시 듣기", Ui.CARD, sp = 17f) { speak(answer.text.toString()) })
+        listenRow.add(Ui.button(this, "⏹ 그만 읽기", Ui.CARD, sp = 17f) { tts?.stop() })
+        body.add(listenRow, 8)
         body.add(View(this), 40)
     }
 
@@ -296,7 +305,7 @@ class AskActivity : Activity(), TextToSpeech.OnInitListener {
             showPhotos(room, r.getOrNull())
             answer.text = text
             answer.visibility = View.VISIBLE
-            body.findViewWithTag<Button>("replay")?.visibility = View.VISIBLE
+            body.findViewWithTag<View>("replay")?.visibility = View.VISIBLE
             if (r.isSuccess) speak(text)
             (body.parent as? ScrollView)?.post { (body.parent as ScrollView).smoothScrollTo(0, answer.top) }
         }

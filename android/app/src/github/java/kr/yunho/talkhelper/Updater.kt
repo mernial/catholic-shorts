@@ -20,6 +20,10 @@ import java.net.URL
  * 기존 앱 위에 덮어 설치되려면 두 버전이 같은 서명 키로 만들어져 있어야 함.
  */
 object Updater {
+    /** 직접 설치판: 앱 안에서 받아 설치 (스토어 아님) */
+    const val STORE = false
+    fun openStore(ctx: Context) {}
+
     private const val BASE = "https://github.com/mernial/catholic-shorts/releases/download/talk-helper"
     private const val VERSION_URL = "$BASE/version.json"
     private const val APK_URL = "$BASE/talk-helper.apk"

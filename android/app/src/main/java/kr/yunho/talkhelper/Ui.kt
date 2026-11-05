@@ -94,4 +94,19 @@ object Ui {
         addView(v, lp)
         return v
     }
+
+    /** 찾은 내용: 결론·진행·결정·근거 제목은 굵게 한 줄, 내용은 그 아래 들여 써서 */
+    fun answer(text: String): CharSequence {
+        val formatted = kr.yunho.talkhelper.core.AnswerFormat.format(text)
+        val sb = android.text.SpannableStringBuilder()
+        formatted.lines().forEachIndexed { i, line ->
+            if (i > 0) sb.append('\n')
+            val start = sb.length
+            sb.append(line)
+            if (kr.yunho.talkhelper.core.AnswerFormat.isLabelLine(line)) {
+                sb.setSpan(android.text.style.StyleSpan(android.graphics.Typeface.BOLD), start, sb.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
+        }
+        return sb
+    }
 }

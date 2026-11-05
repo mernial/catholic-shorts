@@ -31,6 +31,10 @@ class AskActivity : Activity(), TextToSpeech.OnInitListener {
 
     companion object {
         const val EXTRA_SCREEN = "screenText"
+        /** 카톡 위 카드에서 '내보내고 찾기'를 고른 질문 (내보낸 대화가 들어오면 이어서 답함) */
+        @Volatile var pendingQuestion: Pair<String, Long>? = null
+        /** 내보낸 카톡 방의 화면 이름 (저장된 대화와 짝지어 기억) */
+        @Volatile var pendingTitle: String? = null
         private const val REQ_SPEECH = 11
         private const val REQ_FOLDER = 12
         private const val SCREEN = "\u0000screen"   // '지금 화면' 을 나타내는 내부 이름
@@ -48,6 +52,9 @@ class AskActivity : Activity(), TextToSpeech.OnInitListener {
     private lateinit var answer: TextView
     private lateinit var status: TextView
     private lateinit var photoBox: LinearLayout
+    // 저장하거나 찾는 동안 화면 가운데에 크게 보이는 '진행 중' 표시
+    private lateinit var busy: LinearLayout
+    private lateinit var busyText: TextView
     private var tts: TextToSpeech? = null
     private var ttsReady = false
 
@@ -55,7 +62,23 @@ class AskActivity : Activity(), TextToSpeech.OnInitListener {
         super.onCreate(savedInstanceState)
         tts = TextToSpeech(this, this)
         body = Ui.vbox(this, 18)
-        setContentView(ScrollView(this).apply { fitsSystemWindows = true; addView(body) })
+        busyText = Ui.text(this, "", 22f, bold = true).apply { gravity = android.view.Gravity.CENTER }
+        busy = Ui.vbox(this, 28).apply {
+            gravity = android.view.Gravity.CENTER
+            setBackgroundColor(0xEEF7F4EE.toInt())
+            isClickable = true   // 진행 중에는 뒤 화면이 눌리지 않게
+            visibility = View.GONE
+            addView(android.widget.ProgressBar(this@AskActivity).apply {
+                scaleX = 1.6f; scaleY = 1.6f
+            })
+            add(busyText, 28)
+        }
+        setContentView(android.widget.FrameLayout(this).apply {
+            fitsSystemWindows = true
+            addView(ScrollView(this@AskActivity).apply { addView(body) })
+            addView(busy, android.widget.FrameLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT))
+        })
         handle(intent)
     }
 
@@ -68,6 +91,12 @@ class AskActivity : Activity(), TextToSpeech.OnInitListener {
         if (status == TextToSpeech.SUCCESS) { tts?.language = Locale.KOREAN; ttsReady = true }
     }
 
+    // 화면을 떠나면 읽기를 멈춤
+    override fun onStop() {
+        tts?.stop()
+        super.onStop()
+    }
+
     override fun onDestroy() {
         tts?.shutdown()
         super.onDestroy()
@@ -77,12 +106,17 @@ class AskActivity : Activity(), TextToSpeech.OnInitListener {
 
     private fun handle(i: Intent) {
         i.getStringExtra(EXTRA_SCREEN)?.takeIf { it.isNotBlank() }?.let { screenText = it; selected = SCREEN }
-        if (i.action == Intent.ACTION_SEND) {
+        if (i.action == Intent.ACTION_SEND || i.action == Intent.ACTION_SEND_MULTIPLE) {
             @Suppress("DEPRECATION")
-            val uri: Uri? = if (Build.VERSION.SDK_INT >= 33) i.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+            val uri: Uri? = if (i.action == Intent.ACTION_SEND_MULTIPLE) {
+                (if (Build.VERSION.SDK_INT >= 33) i.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                else i.getParcelableArrayListExtra(Intent.EXTRA_STREAM))?.firstOrNull()
+            } else if (Build.VERSION.SDK_INT >= 33) i.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
             else i.getParcelableExtra(Intent.EXTRA_STREAM)
             val text = i.getStringExtra(Intent.EXTRA_TEXT)
-            Toast.makeText(this, "대화를 저장하는 중… 잠시만요", Toast.LENGTH_SHORT).show()
+            ChatStore.nameHint = pendingTitle   // 파일에 방 이름이 없으면 카톡 화면의 방 이름으로 저장
+            Prefs(this).logExport("받음: ${i.action?.substringAfterLast('.')} ${i.type} 파일=${uri != null} 글=${text?.length ?: 0}자 · 기다리는 질문=${pendingQuestion != null}")
+            showBusy("💬 대화를 저장하는 중이에요…\n\n내보낸 대화는 이 휴대폰 안에만 보관돼요")
             importChat {
                 if (uri != null) ChatStore.importStream(this) { contentResolver.openInputStream(uri) }
                 else text?.let { ChatStore.importText(this, it) }
@@ -96,15 +130,43 @@ class AskActivity : Activity(), TextToSpeech.OnInitListener {
     private fun importChat(work: () -> ChatStore.Saved?) {
         Bg.run(work) { r ->
             if (isFinishing) return@run
+            hideBusy()
             val saved = r.getOrNull()
             if (saved == null) {
-                Toast.makeText(this, "대화 파일을 읽지 못했어요. 카톡에서 다시 내보내 주세요.", Toast.LENGTH_LONG).show()
+                Prefs(this).logExport("저장 실패: ${r.exceptionOrNull()?.let { it.javaClass.simpleName + " " + it.message } ?: "대화 글이 비어 있음"}")
+                AlertDialog.Builder(this).setMessage("카톡 대화 파일만 받을 수 있어요.\n카톡 대화방 ☰ → ⚙ → '대화 내용 내보내기' → '텍스트 메시지만'으로 보내 주세요.")
+                    .setPositiveButton("확인", null).show()
                 return@run
             }
+            Prefs(this).logExport("저장: '${saved.room}' 사진 ${saved.photos}장")
+            // 이 방을 다음부터 바로 알아보도록 화면 이름과 짝지어 둠
+            pendingTitle?.let { t ->
+                Prefs(this).addRoomAlias(kr.yunho.talkhelper.core.RoomMatch.norm(t), saved.room)
+                Prefs(this).logExport("방 이름 기억: '$t' = '${saved.room}'")
+            }
+            pendingTitle = null
             selected = saved.room
             val photos = if (saved.photos > 0) " 사진 ${saved.photos}장도 함께 저장했어요." else ""
             Toast.makeText(this, "'${saved.room}' 대화를 저장했어요.$photos 이제 물어보세요.", Toast.LENGTH_LONG).show()
             render()
+            // 카드에서 물어본 질문이 기다리고 있으면 바로 찾아서 정리해 드림 (5분 안)
+            pendingQuestion?.takeIf { System.currentTimeMillis() - it.second < 5 * 60_000 }?.let { (q, _) ->
+                pendingQuestion = null
+                Prefs(this).logExport("기다리던 질문으로 찾기 시작 (카톡 위 카드)")
+                // 이 화면은 닫고, 카톡 대화방으로 돌아가 그 위에 작은 카드로 정리된 내용을 띄움
+                val app = applicationContext
+                val room = saved.room
+                finish()
+                val open = {
+                    app.startActivity(Intent(app, HelperActivity::class.java)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                        .putExtra(HelperActivity.EXTRA_QUESTION, q)
+                        .putExtra(HelperActivity.EXTRA_ROOM, room))
+                }
+                val svc = KakaoAccessibilityService.instance
+                if (svc != null) Bg.main.postDelayed({ svc.backToChat({ open() }) }, 500) else open()
+                return@run
+            }
             askWhoIsMe(saved.room)
         }
     }
@@ -195,7 +257,7 @@ class AskActivity : Activity(), TextToSpeech.OnInitListener {
         body.add(answer, 12)
         photoBox = Ui.vbox(this).apply { visibility = View.GONE }
         body.add(photoBox, 8)
-        body.add(Ui.button(this, "🔊 다시 듣기", Ui.CARD, sp = 17f) { speak(answer.text.toString()) }.apply { visibility = View.GONE; tag = "replay" }, 8)
+        body.add(View(this).apply { visibility = View.GONE; tag = "replay" }, 0)
         body.add(View(this), 40)
     }
 
@@ -224,7 +286,7 @@ class AskActivity : Activity(), TextToSpeech.OnInitListener {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == REQ_FOLDER && resultCode == RESULT_OK) {
             val tree = data?.data ?: return
-            Toast.makeText(this, "대화와 사진을 가져오는 중… 사진이 많으면 조금 걸려요", Toast.LENGTH_LONG).show()
+            showBusy("📁 대화와 사진을 가져오는 중이에요…\n사진이 많으면 조금 걸려요")
             importChat { ChatStore.importTree(this, tree) }
             return
         }
@@ -247,20 +309,20 @@ class AskActivity : Activity(), TextToSpeech.OnInitListener {
         val claude = ClaudeProvider.get(this)
         if (claude == null) { Toast.makeText(this, "먼저 앱 설정을 마쳐 주세요.", Toast.LENGTH_LONG).show(); return }
         val room = selected?.takeIf { it != SCREEN }
-        status.text = "대화에서 찾는 중… 잠시만요"
-        status.visibility = View.VISIBLE
+        showBusy("🔎 ${if (room != null) "'$room' 대화에서" else "대화에서"} 찾고 있어요…\n\n물어본 것: $q\n\n어떻게 진행되고 무엇이 정해졌는지 정리하는 중이에요")
         answer.visibility = View.GONE
         photoBox.visibility = View.GONE
         Bg.run({ claude.answer(q, chat, room) }) { r ->
             if (isFinishing) return@run
-            status.visibility = View.GONE
+            hideBusy()
+            Prefs(this).logExport(if (r.isSuccess) "찾기 완료" else "찾기 실패: ${r.exceptionOrNull()?.message}")
             val text = r.map { ChatSearch.splitAnswer(it).first }
                 .getOrElse { (it as? HelperException)?.message ?: "문제가 생겼어요: ${it.message}" }
             showPhotos(room, r.getOrNull())
-            answer.text = text
+            answer.text = if (r.isSuccess) Ui.answer(text) else text
             answer.visibility = View.VISIBLE
-            body.findViewWithTag<Button>("replay")?.visibility = View.VISIBLE
-            if (r.isSuccess) speak(text)
+            body.findViewWithTag<View>("replay")?.visibility = View.VISIBLE
+            if (r.isSuccess && Prefs(this).readAnswers) speak(text)
             (body.parent as? ScrollView)?.post { (body.parent as ScrollView).smoothScrollTo(0, answer.top) }
         }
     }
@@ -281,6 +343,13 @@ class AskActivity : Activity(), TextToSpeech.OnInitListener {
         }
         photoBox.visibility = View.VISIBLE
     }
+
+    private fun showBusy(msg: String) {
+        busyText.text = msg
+        busy.visibility = View.VISIBLE
+    }
+
+    private fun hideBusy() { busy.visibility = View.GONE }
 
     private fun speak(text: String) {
         if (!ttsReady || text.isBlank()) return

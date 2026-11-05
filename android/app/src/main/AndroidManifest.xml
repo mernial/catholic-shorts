@@ -54,15 +54,17 @@
             android:exported="true"
             android:label="대화에서 찾기"
             android:launchMode="singleTop">
+            <!-- 카톡 '대화 내용 내보내기'는 기종에 따라 글 파일을 일반 파일 종류로 보내므로 모든 종류를 받고,
+                 받은 뒤 카톡 대화가 아니면 저장하지 않음 -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="text/plain" />
+                <data android:mimeType="*/*" />
             </intent-filter>
             <intent-filter>
-                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
                 <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="application/zip" />
+                <data android:mimeType="*/*" />
             </intent-filter>
         </activity>
 

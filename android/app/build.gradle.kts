@@ -82,6 +82,8 @@ android {
 
 dependencies {
     implementation("com.anthropic:anthropic-java:3.2.0")
+    // 플레이 스토어판: 새 버전이 있는지 플레이 스토어에 물어봄
+    "playImplementation"("com.google.android.play:app-update:2.1.0")
     testImplementation("junit:junit:4.13.2")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.3")
 }

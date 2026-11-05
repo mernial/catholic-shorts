@@ -23,6 +23,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import android.app.AlertDialog
 import kr.yunho.talkhelper.Ui.add
 import kr.yunho.talkhelper.core.EndSignal
 import kr.yunho.talkhelper.core.HelperException
@@ -39,6 +40,11 @@ class HelperActivity : Activity() {
     companion object {
         /** 버튼을 누른 순간 카톡 화면에 보이던 글 (대화 맥락) */
         @Volatile var pendingScreenText: String? = null
+        /** 버튼을 누른 순간의 카톡 방 이름 */
+        @Volatile var pendingTitle: String? = null
+        /** 내보낸 대화가 저장된 뒤, 기다리던 질문을 이 카드에서 바로 찾아 보여 줄 때 */
+        const val EXTRA_QUESTION = "question"
+        const val EXTRA_ROOM = "room"
         /** true 면 '대화에서 찾기'로 바로 듣기 시작 (도우미 버튼을 꾹 눌러 🔎 고른 경우) */
         const val EXTRA_ASK = "ask"
         private const val REQ_MIC = 7
@@ -105,10 +111,22 @@ class HelperActivity : Activity() {
     private fun start() {
         screenText = pendingScreenText
         pendingScreenText = null
+        roomTitle = pendingTitle
+        pendingTitle = null
         heard.clear(); partial = ""; lastSpoken = ""
         mode = prefs.mode   // 동그라미 메뉴에서 고른 말투
         val ask = intent?.getBooleanExtra(EXTRA_ASK, false) == true
+        val readyQuestion = intent?.getStringExtra(EXTRA_QUESTION)
+        val readyRoom = intent?.getStringExtra(EXTRA_ROOM)
         build()
+        // 내보내기가 끝나 저장된 대화에서 바로 찾기 (듣기 없이)
+        if (readyQuestion != null && readyRoom != null) {
+            heardView.text = "물어본 것: $readyQuestion"
+            talkRowView.visibility = View.GONE
+            val saved = ChatStore.chatText(this, readyRoom).orEmpty()
+            answerFrom(readyQuestion, saved, readyRoom, 0)
+            return
+        }
         // 버튼을 누르자마자 바로 듣기 시작
         if (prefs.apiKey.isBlank()) showStatus("⚠️ 아직 준비가 안 됐어요. '${getString(R.string.app_name)}' 앱을 열어 설정을 마쳐 주세요.", Ui.RED)
         else {
@@ -204,6 +222,7 @@ class HelperActivity : Activity() {
 
         // 말하기 + 들은 말
         val talkRow = Ui.hbox(ctx)
+        talkRowView = talkRow
         micButton = small("", Ui.BROWN, Ui.YELLOW, sp = 16f) { if (!listening) askMode = false; toggleMic() }
         talkRow.add(micButton, weight = 2f)
         // ⌨️·🔎 는 숨김 (찾기는 버튼을 꾹 눌러 🔎)
@@ -261,13 +280,19 @@ class HelperActivity : Activity() {
 
         // 대화에서 찾은 답
         answerBox = Ui.vbox(ctx, 10, Ui.THEM).apply { visibility = View.GONE }
-        answerText = Ui.text(ctx, "", 18f).apply { setTextIsSelectable(true) }
+        // 정리된 내용은 휴대폰 기본 글씨 크기로
+        answerText = TextView(ctx).apply {
+            setTextColor(Ui.BROWN)
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 15f)
+            setLineSpacing(0f, 1.15f)
+            setTextIsSelectable(true)
+        }
         answerBox.add(answerText, 0)
         answerPhotos = Ui.vbox(ctx).apply { visibility = View.GONE }
         answerBox.add(answerPhotos, 8)
         val answerRow = Ui.hbox(ctx)
-        answerRow.add(small("📍 대화에서 보기", Ui.BROWN, Ui.YELLOW, sp = 15f) { goToMessage() }, weight = 1.4f)
-        answerRow.add(small("🔊 듣기", sp = 15f) { speak(answerText.text.toString()) })
+        answerRow.add(small("📍 해당 메시지로 이동", Ui.BROWN, Ui.YELLOW, sp = 15f) { goToMessage() }, weight = 1.6f)
+        answerRow.add(small("닫기", sp = 15f) { tts?.stop(); finish() })
         answerBox.add(answerRow, 8)
         card.add(answerBox, 8)
 
@@ -276,7 +301,8 @@ class HelperActivity : Activity() {
             visibility = View.GONE
             setPadding(0, Ui.dp(ctx, 6), 0, 0)
             setOnClickListener {
-                startActivity(Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                if (Updater.STORE) Updater.openStore(ctx)
+                else startActivity(Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                 finish()
             }
         }
@@ -479,22 +505,115 @@ class HelperActivity : Activity() {
     private var tts: android.speech.tts.TextToSpeech? = null
 
     /** 이 대화방을 미리 '내보내기'로 저장해 뒀으면 그 전체 대화 + 지금 화면 */
+    private var roomTitle: String? = null
+    private lateinit var talkRowView: View
+
     private fun chatForThisRoom(): Pair<String, String?> {
         val screen = screenText.orEmpty()
         val top = screen.lines().take(8).map { it.trim() }
-        val room = AskActivity.savedRooms(this).firstOrNull { name -> top.any { it == name || it.startsWith(name) } }
+        val rooms = AskActivity.savedRooms(this)
+        // 1) 방 이름으로 (내보낼 때 기억한 짝, 띄어쓰기·인원수 차이 무시)  2) 화면 윗줄 글자로
+        val room = kr.yunho.talkhelper.core.RoomMatch.find(roomTitle, rooms, prefs.roomAliases())
+            ?: rooms.firstOrNull { name -> top.any { it == name || it.startsWith(name) } }
+            // 3) 이름으로 못 찾으면 대화 내용으로: 화면에 보이는 메시지가 들어 있는 저장된 대화
+            ?: kr.yunho.talkhelper.core.RoomMatch.byContent(screen.lines(), rooms.associateWith { ChatStore.chatText(this, it).orEmpty() })
+                ?.also { r ->
+                    roomTitle?.let { prefs.addRoomAlias(kr.yunho.talkhelper.core.RoomMatch.norm(it), r) }
+                    prefs.logExport("대화 내용으로 방 알아봄: '$r'")
+                }
         val saved = room?.let { java.io.File(AskActivity.chatsDir(this), "$it.txt").readText() }.orEmpty()
         val chat = if (saved.isNotBlank()) "$saved\n\n[지금 카톡 화면]\n$screen" else screen
         return chat to room
     }
 
     private fun askChat(question: String) {
-        val claude = ClaudeProvider.get(this) ?: return showStatus("⚠️ 아직 준비가 안 됐어요. 앱을 열어 설정을 마쳐 주세요.", Ui.RED)
+        if (ClaudeProvider.get(this) == null) return showStatus("⚠️ 아직 준비가 안 됐어요. 앱을 열어 설정을 마쳐 주세요.", Ui.RED)
         val (chat, room) = chatForThisRoom()
-        if (chat.isBlank()) return showStatus("화면에서 대화를 읽지 못했어요. 카톡 대화방에서 다시 눌러 주세요.", Ui.RED)
         resultBox.visibility = View.GONE
         answerBox.visibility = View.GONE
-        showStatus(if (room != null) "🔎 '$room' 대화 전체에서 찾는 중…" else "🔎 화면의 대화에서 찾는 중…")
+        val svc = KakaoAccessibilityService.instance
+        // 내보내 저장해 둔 대화가 없으면: 먼저 이 방 대화를 내보낼지 물어봄
+        if (room == null && svc != null) {
+            showStatus(null)
+            val rooms = AskActivity.savedRooms(this)
+            prefs.logExport("찾기: 방 이름 '${roomTitle ?: "못 읽음"}' · 저장된 방 ${rooms.joinToString().ifBlank { "없음" }} → 짝 못 찾음")
+            // 이미 내보낸 대화가 있으면, 그중에서 이 방을 고르게 함 (고르면 다음부터 바로 찾음)
+            if (rooms.isNotEmpty()) {
+                val items = rooms.map { "💬 $it" } + "➕ 이 방은 처음이에요 (새로 내보내기)"
+                AlertDialog.Builder(this)
+                    .setTitle("이 방 대화를 이미 내보냈나요? 내보낸 대화를 골라 주세요")
+                    .setItems(items.toTypedArray()) { _, i ->
+                        if (i < rooms.size) {
+                            val picked = rooms[i]
+                            roomTitle?.let { prefs.addRoomAlias(kr.yunho.talkhelper.core.RoomMatch.norm(it), picked) }
+                            prefs.logExport("방 고름: '${roomTitle ?: "?"}' = '$picked'")
+                            val saved = ChatStore.chatText(this, picked).orEmpty()
+                            answerFrom(question, "$saved\n\n[지금 카톡 화면]\n${screenText.orEmpty()}", picked, 0)
+                        } else askExport(question, chat, svc)
+                    }
+                    .setNegativeButton("취소", null)
+                    .show()
+                return
+            }
+            askExport(question, chat, svc)
+            return
+        }
+        if (chat.isBlank()) return showStatus("화면에서 대화를 읽지 못했어요. 카톡 대화방에서 다시 눌러 주세요.", Ui.RED)
+        answerFrom(question, chat, room, 0)
+    }
+
+    /** 이 방 대화를 내보낼지 물어봄 */
+    private fun askExport(question: String, chat: String, svc: KakaoAccessibilityService) {
+        run {
+            AlertDialog.Builder(this)
+                .setTitle("이 카톡방의 대화 메시지를 내보낼까요?")
+                .setMessage(
+                    "내보내면 이 방의 예전 대화까지 처음부터 찾아서, 대화가 어떻게 진행되고 무엇이 결정됐는지 정리해 드려요.\n\n" +
+                        "• 내보낸 대화는 이 휴대폰 안에만 보관돼요. 다른 곳에 저장되지 않아요.\n" +
+                        "• 찾을 때만 질문과 관련된 부분을 AI(Claude)에 보내 답을 받아요.\n" +
+                        "• 앱에서 언제든 지울 수 있어요."
+                )
+                .setPositiveButton("내보내고 찾기") { _, _ -> exportThenAsk(question, svc) }
+                .setNegativeButton("이번엔 화면에서만") { _, _ -> collectThenAsk(question, chat, svc) }
+                .setNeutralButton("취소", null)
+                .show()
+        }
+    }
+
+    /** 카톡 메뉴를 대신 눌러 이 방 대화를 이 앱으로 내보내고, 저장되면 '대화에서 찾기'가 이어서 답함 */
+    private fun exportThenAsk(question: String, svc: KakaoAccessibilityService) {
+        AskActivity.pendingQuestion = question to System.currentTimeMillis()
+        AskActivity.pendingTitle = roomTitle
+        finish()   // 카드를 닫아야 카톡 메뉴를 누를 수 있음
+        Bg.main.postDelayed({
+            // 막히면 덮개에 직접 누를 순서가 크게 남음 (질문은 5분 동안 기억)
+            svc.exportChat { _, _ -> }
+        }, 400)
+    }
+
+    /** 내보내지 않고: 카톡 대화방을 위로 넘기며 예전 대화를 모아서 찾음 */
+    private fun collectThenAsk(question: String, chat: String, svc: KakaoAccessibilityService) {
+        run {
+            showStatus("📜 예전 대화를 넘겨 보며 모으는 중… 잠시만요")
+            svc.collectHistory(progress = { n ->
+                if (!isFinishing) showStatus("📜 예전 대화를 넘겨 보며 모으는 중… ${n}쪽")
+            }) { lines ->
+                if (isFinishing) return@collectHistory
+                val history = lines.joinToString("\n")
+                val all = if (history.length > chat.length) history else chat
+                if (all.isBlank()) showStatus("화면에서 대화를 읽지 못했어요. 카톡 대화방에서 다시 눌러 주세요.", Ui.RED)
+                else answerFrom(question, all, null, lines.size)
+            }
+        }
+    }
+
+    private fun answerFrom(question: String, chat: String, room: String?, collectedLines: Int) {
+        val claude = ClaudeProvider.get(this) ?: return
+        showStatus(when {
+            room != null -> "🔎 '$room' 대화 전체에서 찾는 중…"
+            collectedLines > 0 -> "🔎 모은 대화 ${collectedLines}줄에서 찾는 중…"
+            else -> "🔎 화면의 대화에서 찾는 중…"
+        })
         Bg.run({ claude.answer(question, chat, room) }) { r ->
             if (isFinishing) return@run
             askMode = false
@@ -502,7 +621,7 @@ class HelperActivity : Activity() {
                 val (text, word) = kr.yunho.talkhelper.core.ChatSearch.splitAnswer(full)
                 showStatus(null)
                 answerKeyword = word
-                answerText.text = text
+                answerText.text = Ui.answer(if (room == null && text.contains("찾지 못")) "$text\n\n※ 더 예전 대화는 카톡 '대화 내용 내보내기'로 이 앱에 저장해 두면 처음부터 다 찾아 드려요." else text)
                 // 사진을 찾은 경우: 함께 저장해 둔 사진 중 그 무렵 것을 보여 줌 (사진은 휴대폰 밖으로 안 나감)
                 answerPhotos.removeAllViews()
                 val at = kr.yunho.talkhelper.core.PhotoFind.photoTime(full)
@@ -513,7 +632,8 @@ class HelperActivity : Activity() {
                     14f, color = Ui.MUTED), 0)
                 answerPhotos.visibility = if (answerPhotos.childCount > 0) View.VISIBLE else View.GONE
                 answerBox.visibility = View.VISIBLE
-                speak(text)
+                talkRowView.visibility = View.GONE   // 정리된 내용과 버튼 두 개만
+                if (prefs.readAnswers) speak(text)   // 읽어 주기는 설정에서 켠 경우만
             }.onFailure { showStatus((it as? HelperException)?.message ?: "문제가 생겼어요: ${it.message}", Ui.RED) }
         }
     }
@@ -522,6 +642,7 @@ class HelperActivity : Activity() {
     private fun goToMessage() {
         val word = answerKeyword
         val app = applicationContext
+        val answerTextCopy = answerText.text.toString()
         tts?.stop()
         finish()
         val svc = KakaoAccessibilityService.instance
@@ -529,12 +650,18 @@ class HelperActivity : Activity() {
             Toast.makeText(app, "카톡 대화방에서 직접 찾아 주세요.", Toast.LENGTH_LONG).show()
             return
         }
-        svc.searchInChat(word, { ok ->
-            if (!ok) {
-                (app.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("찾을말", word))
-                Toast.makeText(app, "대화방 위쪽 🔍를 누르고 '$word'를 붙여 넣어 찾아 주세요.", Toast.LENGTH_LONG).show()
+        // 대화방을 위로 넘기며 그 메시지가 보일 때까지 찾아가서 멈춤 (카톡 검색창에 기대지 않음)
+        Bg.main.postDelayed({
+            // 근거로 나온 원래 문장 앞부분으로 먼저, 없으면 찾을말로
+            val quote = Regex("근거\\s*[:：]?[^'‘\"“]*['‘\"“]([^'’\"”]{4,})['’\"”]").find(answerTextCopy)?.groupValues?.get(1)?.trim()?.take(16)
+            svc.scrollToText(listOfNotNull(quote, word)) { found ->
+                if (found) Toast.makeText(app, "찾은 메시지예요", Toast.LENGTH_SHORT).show()
+                else {
+                    (app.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("찾을말", word))
+                    Toast.makeText(app, "메시지를 찾지 못했어요. 대화방 위쪽 🔍를 누르고 '$word'를 붙여 넣어 찾아 주세요.", Toast.LENGTH_LONG).show()
+                }
             }
-        })
+        }, 400)
     }
 
     /** 읽어 주기. [then] 은 다 읽은 뒤 (읽지 못하면 바로) 실행 */
@@ -624,13 +751,13 @@ class HelperActivity : Activity() {
     private fun rewrite(spoken: String) {
         val claude = ClaudeProvider.get(this) ?: return showStatus("⚠️ 아직 준비가 안 됐어요. '${getString(R.string.app_name)}' 앱을 열어 설정을 마쳐 주세요.", Ui.RED)
         lastSpoken = spoken
-        showStatus("${mode.emoji} '${mode.label}' 말투로 다듬는 중… " + if (prefs.carefulRewrite) "섬세하게 다듬느라 조금 더 걸려요" else "잠시만요")
+        showStatus("${mode.emoji} '${mode.label}' 말투로 다듬는 중… 잠시만요")
         resultBox.visibility = View.GONE
         val m = mode
         Bg.run({
             // '내 말투': 이 방을 내보내 저장해 뒀으면 그 방에서 내가 보낸 말, 아니면 화면의 내 말풍선을 예시로
             val style = if (m == Mode.MINE) ChatStore.myStyle(this, chatForThisRoom().second).ifEmpty { kr.yunho.talkhelper.core.MyStyle.fromScreen(screenText) } else emptyList()
-            claude.rewrite(m, spoken, screenText, prefs.myName, prefs.myRole, prefs.carefulRewrite, style)
+            claude.rewrite(m, spoken, screenText, prefs.myName, prefs.myRole, style)
                 .also { claude.lastUsage?.let { u -> prefs.lastUsage = u.describe() } }
         }) { r ->
             if (isFinishing) return@run

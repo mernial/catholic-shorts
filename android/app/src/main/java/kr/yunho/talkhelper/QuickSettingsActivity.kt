@@ -14,14 +14,12 @@ import kr.yunho.talkhelper.Ui.add
 /**
  * 카톡 위에서 바로 여는 간단한 설정 (도우미 버튼을 꾹 눌러 ⚙️).
  *  - 다듬은 문장 보내는 방식: 바로 / 3초 뒤 / 확인 후
- *  - 다듬기 AI: 기본(빠르고 저렴) / 섬세하게(조금 비쌈)
  * 누르는 즉시 저장됨.
  */
 class QuickSettingsActivity : Activity() {
 
     private lateinit var prefs: Prefs
     private lateinit var sendButtons: Map<SendMode, Button>
-    private lateinit var aiButtons: Map<Boolean, Button>
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -35,13 +33,18 @@ class QuickSettingsActivity : Activity() {
             choice(card, "${m.label} 보내기", m.desc) { prefs.sendMode = m; paint(); saved() }
         }
 
-        card.add(Ui.text(this, "다듬는 AI", 17f, bold = true), 18)
-        aiButtons = mapOf(
-            false to choice(card, "기본", "빠르고 대부분 충분해요") { prefs.carefulRewrite = false; paint(); saved() },
-            true to choice(card, "섬세하게", "말투를 더 섬세하게 다듬어요 · 보내기가 조금 늦어져요") { prefs.carefulRewrite = true; paint(); saved() },
-        )
+        card.add(android.widget.Switch(this).apply {
+            text = "찾은 내용 소리로 읽어 주기"
+            textSize = 17f
+            setTextColor(Ui.BROWN)
+            isChecked = prefs.readAnswers
+            setOnCheckedChangeListener { _, on -> prefs.readAnswers = on; saved() }
+        }, 18)
 
         card.add(Ui.button(this, "닫기", sp = 19f) { finish() }, 18)
+
+        // 카톡 위 🎤 버튼 끄기 (다시 켜려면 앱에서)
+        card.add(Ui.button(this, "🎤 버튼 끄기", Ui.CARD, Ui.RED, sp = 16f) { confirmTurnOff() }, 10)
         paint()
 
         val root = android.widget.FrameLayout(this).apply {
@@ -69,7 +72,20 @@ class QuickSettingsActivity : Activity() {
             b.text = b.text.toString().removePrefix("✅ ").let { if (on) "✅ $it" else it }
         }
         sendButtons.forEach { (m, b) -> mark(b, m == prefs.sendMode) }
-        aiButtons.forEach { (careful, b) -> mark(b, careful == prefs.carefulRewrite) }
+    }
+
+    private fun confirmTurnOff() {
+        android.app.AlertDialog.Builder(this)
+            .setTitle("카톡 위 🎤 버튼을 끌까요?")
+            .setMessage("끄면 카톡에서 버튼이 사라져요.\n\n다시 켜려면 '${getString(R.string.app_name)}' 앱을 열고 맨 위의 '켜기' 스위치를 눌러 주세요.")
+            .setPositiveButton("끄기") { _, _ ->
+                prefs.enabled = false
+                KakaoAccessibilityService.instance?.redrawBubble()
+                Toast.makeText(this, "버튼을 껐어요. 다시 켜려면 '${getString(R.string.app_name)}' 앱에서 켜 주세요.", Toast.LENGTH_LONG).show()
+                finish()
+            }
+            .setNegativeButton("취소", null)
+            .show()
     }
 
     private fun saved() = Toast.makeText(this, "저장했어요", Toast.LENGTH_SHORT).show()

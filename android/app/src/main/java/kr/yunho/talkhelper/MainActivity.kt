@@ -67,8 +67,16 @@ class MainActivity : Activity() {
     private fun updateBanner() {
         val info = update ?: return
         val box = Ui.vbox(this, 16, Ui.MINE)
-        box.add(Ui.text(this, "🔔 새 버전이 나왔어요", 22f, bold = true), 0)
+        box.add(Ui.text(this, "🔔 새 버전이 나왔어요 (${info.versionName})", 22f, bold = true), 0)
         if (info.notes.isNotBlank()) box.add(Ui.text(this, info.notes, 14f, color = Ui.MUTED), 4)
+        // 플레이 스토어판: 누르면 스토어의 이 앱 화면이 열리고, 거기서 '업데이트'를 누름
+        if (Updater.STORE) {
+            box.add(Ui.button(this, "⬇️  업데이트하러 가기", Ui.BROWN, Ui.YELLOW, sp = 22f) { Updater.openStore(this) }
+                .apply { minHeight = Ui.dp(this@MainActivity, 80) }, 10)
+            box.add(Ui.text(this, "Play 스토어가 열리면 '업데이트'를 누르세요.", 14f, color = Ui.MUTED), 6)
+            body.add(box, 12)
+            return
+        }
         val btn = Ui.button(this, updating ?: "⬇️  지금 업데이트", Ui.BROWN, Ui.YELLOW, sp = 22f) {
             if (updating != null || !Updater.ensureInstallAllowed(this)) return@button
             updating = "받는 중… 0%"
@@ -294,27 +302,15 @@ class MainActivity : Activity() {
         group.setOnCheckedChangeListener { _, id -> SendMode.values().getOrNull(id - 3000)?.let { p.sendMode = it } }
         body.add(group, 6)
 
-        // 다듬기: 기본 ⟷ 섬세하게 (밀어서 바꿈)
-        body.add(Ui.text(this, "다듬기", 18f, bold = true), 24)
-        val q = Ui.hbox(this).apply { gravity = android.view.Gravity.CENTER_VERTICAL }
-        val basic = Ui.text(this, "기본", 18f, bold = !p.carefulRewrite).apply { gravity = android.view.Gravity.END }
-        val fine = Ui.text(this, "섬세하게", 18f, bold = p.carefulRewrite)
-        q.add(basic, weight = 1f)
-        q.add(android.widget.Switch(this).apply {
-            isChecked = p.carefulRewrite
-            scaleX = 1.4f; scaleY = 1.4f
-            contentDescription = "기본 또는 섬세하게 다듬기"
-            setOnCheckedChangeListener { _, on ->
-                p.carefulRewrite = on
-                basic.setTypeface(null, if (on) android.graphics.Typeface.NORMAL else android.graphics.Typeface.BOLD)
-                fine.setTypeface(null, if (on) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
-            }
-        }, weight = 0.6f)
-        q.add(fine, weight = 1f)
-        body.add(q, 8)
-        body.add(Ui.text(this, "※ 섬세하게로 하면 다듬는 데 시간이 더 걸려 보내기가 조금 늦어져요.", 15f, color = Ui.MUTED).apply {
-            gravity = android.view.Gravity.CENTER
-        }, 6)
+        // 찾은 내용 읽어 주기 (기본: 안 읽음)
+        body.add(android.widget.Switch(this).apply {
+            text = "찾은 내용 소리로 읽어 주기"
+            textSize = 18f * p.textScale
+            setTextColor(Ui.BROWN)
+            isChecked = p.readAnswers
+            setOnCheckedChangeListener { _, on -> p.readAnswers = on }
+        }, 24)
+
         body.add(View(this), 40)
     }
 
@@ -400,6 +396,10 @@ class MainActivity : Activity() {
     }
 
     private fun sendLog() {
+        Prefs(this).exportLog.takeIf { it.isNotBlank() }?.let {
+            body.add(Ui.text(this, "대화 내보내기·찾기 기록 (안 될 때 이 화면을 캡처해 주세요)", 14f, bold = true, color = Ui.MUTED), 28)
+            body.add(Ui.text(this, it, 11f, color = Ui.MUTED).apply { setTextIsSelectable(true) }, 4)
+        }
         val log = Prefs(this).lastSendLog
         if (log.isBlank() || log == "성공") return
         body.add(Ui.text(this, "마지막 보내기 기록 (안 될 때 이 화면을 캡처해 주세요)", 14f, bold = true, color = Ui.MUTED), 28)

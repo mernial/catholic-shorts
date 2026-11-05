@@ -100,6 +100,7 @@ class KakaoAccessibilityService : AccessibilityService() {
     }
 
     override fun onDestroy() {
+        removeCover()
         removeBubble()
         instance = null
         super.onDestroy()
@@ -127,12 +128,44 @@ class KakaoAccessibilityService : AccessibilityService() {
      * 카톡 화면에 보이는 글. 오른쪽에 붙은 말풍선(내가 보낸 말)은 앞에 "나: " 를 붙여
      * AI 가 누가 한 말인지 헷갈리지 않게 함 (상대가 나를 부르는 '신부님' 같은 호칭을 상대에게 쓰는 일 방지)
      */
+    /**
+     * 대화 내보내기를 마친 뒤 카톡 설정 화면들을 뒤로 닫아 대화방으로 돌아감
+     * (입력창이 보이면 대화방에 온 것). 많아야 네 번 뒤로.
+     */
+    fun backToChat(done: () -> Unit, left: Int = 4) {
+        val inChat = findEditable(kakaoRoot()) != null && chatList(kakaoRoot()) != null
+        if (inChat || left <= 0) { handler.postDelayed({ done() }, 250); return }
+        performGlobalAction(GLOBAL_ACTION_BACK)
+        handler.postDelayed({ backToChat(done, left - 1) }, 550)
+    }
+
+    /** 지금 카톡 대화방 이름 (화면 맨 위 왼쪽에 있는 제목 글자) */
+    fun chatTitle(): String? {
+        val root = kakaoRoot() ?: return null
+        val win = bounds(root)
+        var best: AccessibilityNodeInfo? = null
+        walk(root) { n ->
+            val t = n.text?.toString()?.trim()
+            if (!t.isNullOrEmpty() && !n.isEditable && n.isVisibleToUser) {
+                val b = bounds(n)
+                val top = b.top - win.top < win.height() * 0.15 && b.left - win.left < win.width() * 0.6
+                if (top && !Regex("^\\d{1,2}:\\d{2}$").matches(t) && (best == null || b.top < bounds(best!!).top)) best = n
+            }
+            false
+        }
+        return best?.text?.toString()?.trim()
+    }
+
     fun screenTexts(): List<String> {
         val root = kakaoRoot() ?: return emptyList()
-        val win = bounds(root)
+        return textsIn(root, bounds(root))
+    }
+
+    /** [node] 안의 글자들. 창 [win] 오른쪽에 붙은 말풍선은 "나: " 표시 */
+    private fun textsIn(node: AccessibilityNodeInfo, win: Rect): List<String> {
         val w = win.width().coerceAtLeast(1)
         val out = ArrayList<String>()
-        walk(root) { n ->
+        walk(node) { n ->
             if (!n.isEditable) {
                 val t = n.text?.toString()?.trim()
                 if (!t.isNullOrEmpty()) {
@@ -145,6 +178,315 @@ class KakaoAccessibilityService : AccessibilityService() {
             out.size > 400
         }
         return out
+    }
+
+    // ───────── 예전 대화 모으기 (위로 넘기며) ─────────
+
+    /** 대화 목록 (위아래로 넘길 수 있는 가장 큰 칸) */
+    private fun chatList(root: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+        val lists = ArrayList<AccessibilityNodeInfo>()
+        walk(root) { n -> if (n.isScrollable && n.isVisibleToUser) lists += n; false }
+        return lists.maxByOrNull { bounds(it).let { b -> b.width().toLong() * b.height() } }
+    }
+
+    @Volatile private var collecting = false
+    @Volatile private var collectingSince = 0L
+    @Volatile private var stopCollect = false
+
+    /** 앞 작업이 1분 넘게 안 끝났으면 멈춘 것으로 보고 새로 시작할 수 있게 함 */
+    private fun startWork(): Boolean {
+        val now = System.currentTimeMillis()
+        if (collecting && now - collectingSince < 60_000) return false
+        removeCover()
+        collecting = true
+        collectingSince = now
+        stopCollect = false
+        return true
+    }
+
+    // 넘기는 동안 화면을 덮는 안내 (대화가 휙휙 넘어가는 모습을 보이지 않게)
+    private var cover: android.widget.LinearLayout? = null
+    private var coverText: TextView? = null
+    private var coverStop: TextView? = null
+
+    private fun showCover(title: String = "예전 대화에서 찾고 있어요…", stopLabel: String = "그만 찾고 지금까지 본 데서 찾기") {
+        if (cover != null) return
+        val box = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setBackgroundColor(android.graphics.Color.parseColor("#F21C1C1F"))
+            isClickable = true   // 덮개 뒤 카톡이 눌리지 않게
+            val p = Ui.dp(this@KakaoAccessibilityService, 32); setPadding(p, p, p, p)
+        }
+        box.addView(TextView(this).apply {
+            text = "🔎"
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 48f)
+            gravity = Gravity.CENTER
+        })
+        coverText = TextView(this).apply {
+            text = title
+            setTextColor(android.graphics.Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
+            gravity = Gravity.CENTER
+            setPadding(0, Ui.dp(this@KakaoAccessibilityService, 16), 0, Ui.dp(this@KakaoAccessibilityService, 32))
+        }
+        box.addView(coverText)
+        box.addView(TextView(this).apply {
+            coverStop = this
+            text = stopLabel
+            setTextColor(CHARCOAL_BOTTOM)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 17f)
+            gravity = Gravity.CENTER
+            val p = Ui.dp(this@KakaoAccessibilityService, 14); setPadding(p * 2, p, p * 2, p)
+            background = Ui.rounded(this@KakaoAccessibilityService, android.graphics.Color.WHITE, 24)
+            setOnClickListener { stopCollect = true; coverText?.text = "지금까지 본 대화로 찾을게요…" }
+        })
+        val lp = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT,
+        ).apply { gravity = Gravity.TOP or Gravity.START }
+        runCatching { wm.addView(box, lp); cover = box }
+    }
+
+    private fun removeCover() {
+        cover?.let { runCatching { wm.removeView(it) } }
+        cover = null
+        coverText = null
+        coverStop = null
+    }
+
+    /**
+     * 사용자가 '찾기'를 했을 때, 지금 대화방을 위로 넘기며 예전 대화 글을 모음.
+     * [maxPages] 쪽 또는 [maxMs] 가 지나거나 대화 처음에 닿으면 멈추고, 원래 자리(맨 아래)로 돌아간 뒤 [done].
+     * 모은 글은 휴대폰 안에 있고, 질문과 관련된 부분만 AI 에 보냄.
+     */
+    fun collectHistory(maxPages: Int = 40, maxMs: Long = 15_000, progress: (Int) -> Unit, done: (List<String>) -> Unit) {
+        if (!startWork()) { done(emptyList()); return }
+        showCover()
+        val start = System.currentTimeMillis()
+        var acc: List<String> = emptyList()
+        var pages = 0
+        var scrolled = 0
+
+        fun finish() {
+            // 넘긴 만큼 다시 아래로 (맨 아래 최신 대화로 돌아감)
+            fun back(left: Int) {
+                val list = chatList(kakaoRoot())
+                if (left <= 0 || list == null || !list.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)) {
+                    collecting = false
+                    removeCover()
+                    done(acc)
+                    return
+                }
+                handler.postDelayed({ back(left - 1) }, 120)
+            }
+            back(scrolled + 3)
+        }
+
+        fun step() {
+            val root = kakaoRoot()
+            val list = chatList(root)
+            if (root == null || list == null) { finish(); return }
+            val page = textsIn(list, bounds(root))
+            val top = acc.isNotEmpty() && kr.yunho.talkhelper.core.History.reachedTop(acc, page)
+            acc = kr.yunho.talkhelper.core.History.prepend(acc, page)
+            pages++
+            progress(pages)
+            coverText?.text = "예전 대화에서 찾고 있어요…\n(${pages}쪽 살펴봄)"
+            if (stopCollect) coverText?.text = "지금까지 본 대화로 찾을게요…"
+            if (top || stopCollect || pages >= maxPages || System.currentTimeMillis() - start > maxMs) { finish(); return }
+            if (!list.performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)) { finish(); return }
+            scrolled++
+            handler.postDelayed({ step() }, 450)   // 예전 대화가 그려질 때까지 잠깐 기다림
+        }
+        step()
+    }
+
+    /**
+     * 대화방을 위로 넘기며 [word] 가 들어 있는 메시지가 화면에 보이면 멈춤 (가장 최근 것부터).
+     * 넘기는 동안은 덮개로 가림. 찾으면 그 메시지가 보이는 상태로 [done](true)
+     */
+    fun scrollToText(words: List<String>, maxPages: Int = 120, done: (Boolean) -> Unit) {
+        if (!startWork()) { done(false); return }
+        showCover("메시지로 이동하는 중이에요…", "그만")
+        var pages = 0
+        var last: List<String> = emptyList()
+        fun end(ok: Boolean) { collecting = false; removeCover(); done(ok) }
+        fun step() {
+            if (stopCollect) { end(false); return }
+            val root = kakaoRoot()
+            val list = chatList(root)
+            if (root == null || list == null) { end(false); return }
+            // 앞의 것(원래 문장)이 더 정확하므로 먼저 찾음
+            val hit = words.firstNotNullOfOrNull { w -> walk(list) { n -> n.isVisibleToUser && n.text?.toString()?.contains(w) == true } }
+            if (hit != null) {
+                hit.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.id)
+                handler.postDelayed({ end(true) }, 300)
+                return
+            }
+            val page = textsIn(list, bounds(root))
+            if (page == last || pages >= maxPages) { end(false); return }   // 맨 처음에 닿았거나 너무 오래
+            last = page
+            pages++
+            coverText?.text = "메시지로 이동하는 중이에요…\n(${pages}쪽 올라감)"
+            if (!list.performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)) { end(false); return }
+            handler.postDelayed({ step() }, 400)
+        }
+        step()
+    }
+
+    // ───────── 대화 내보내기 (사용자가 허락했을 때 카톡 메뉴를 대신 눌러 줌) ─────────
+
+    /** 화면에 떠 있는 모든 창(카톡, 공유 창 등)의 뿌리 */
+    private fun allRoots(): List<AccessibilityNodeInfo> =
+        (runCatching { windows.mapNotNull { it.root } }.getOrDefault(emptyList()) + listOfNotNull(rootInActiveWindow))
+            .filter { it.packageName != packageName }
+
+    /** [iconOnly] 면 아이콘 버튼 설명(contentDescription)만 봄 — 대화 글에 같은 낱말이 있어도 누르지 않게 */
+    private fun findAny(match: (String) -> Boolean, iconOnly: Boolean = false): AccessibilityNodeInfo? {
+        for (r in allRoots()) {
+            walk(r) { n ->
+                val l = if (iconOnly) n.contentDescription?.toString()?.trim().orEmpty() else label(n)
+                n.isVisibleToUser && l.isNotEmpty() && match(l)
+            }?.let { return it }
+        }
+        return null
+    }
+
+    /** [match] 에 맞는 것을 찾아 누름. 안 보이면 [scroll] 이면 목록을 넘겨 가며 [tries] 번 다시 봄 */
+    private fun tapWhenShown(match: (String) -> Boolean, tries: Int, scroll: Boolean, iconOnly: Boolean = false, then: (Boolean) -> Unit) {
+        if (stopCollect) { then(false); return }
+        val n = findAny(match, iconOnly)
+        if (n != null && tapNode(n)) {
+            handler.postDelayed({ then(true) }, 900)
+            return
+        }
+        if (tries <= 0) { then(false); return }
+        if (scroll) {
+            allRoots().forEach { r ->
+                walk(r) { x -> x.isScrollable && x.isVisibleToUser }?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
+            }
+        }
+        handler.postDelayed({ tapWhenShown(match, tries - 1, scroll, iconOnly, then) }, 450)
+    }
+
+    /**
+     * 누르기: 누를 수 있는 칸이면 그 칸을 누르고, 아니면(글자만 있는 줄) 그 자리를 손가락으로 톡 누르듯 터치
+     */
+    private fun tapNode(n: AccessibilityNodeInfo): Boolean {
+        clickable(n)?.let { if (it.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true }
+        val b = bounds(n)
+        if (b.isEmpty) return false
+        val path = android.graphics.Path().apply { moveTo(b.exactCenterX(), b.exactCenterY()) }
+        val stroke = android.accessibilityservice.GestureDescription.StrokeDescription(path, 0, 60)
+        return dispatchGesture(android.accessibilityservice.GestureDescription.Builder().addStroke(stroke).build(), null, null)
+    }
+
+    /** 공유 창에 이 앱이 보이는지 */
+    private fun shareTargetShown(appName: String) =
+        findAny({ it == "대화에서 찾기" || it == appName || it.startsWith(appName) }) != null
+
+    /**
+     * 4단계: '텍스트만 보내기' 고르기. 이름이 기종마다 조금 달라 넓게 찾고,
+     * 확인 창이 끼어들면 '확인'을 누르고, 이미 공유 창이 떴으면 넘어감
+     */
+    private fun pickTextOnly(appName: String, tries: Int, then: (Boolean) -> Unit) {
+        if (stopCollect) { then(false); return }
+        if (shareTargetShown(appName)) { then(true); return }
+        // 기종마다 '텍스트만 보내기' / '텍스트 메시지만 저장'(외부로 전송) 등 이름이 다름. '모든 메시지 내부저장소'는 제외
+        val option = findAny({ (it.contains("텍스트") || it.contains("Text", ignoreCase = true)) && !it.contains("내부") && !it.contains("모든") && !it.contains("Internal", ignoreCase = true) })
+        if (option != null && tapNode(option)) {
+            Prefs(this).logExport("4 '${label(option).take(20)}' 누름")
+            // 고른 뒤 '보내기/확인' 버튼이 따로 있는 화면이면 그것도 누름
+            handler.postDelayed({
+                if (!shareTargetShown(appName)) findAny({ it == "보내기" || it == "확인" || it == "내보내기" || it == "OK" })?.let { tapNode(it) }
+                handler.postDelayed({ then(true) }, 700)
+            }, 700)
+            return
+        }
+        // 확인 창이 먼저 떴으면 확인
+        findAny({ it == "확인" || it == "OK" || it == "내보내기" })?.takeIf { label(it).length <= 5 }?.let {
+            Prefs(this).logExport("4 확인 창 '${label(it)}' 누름")
+            tapNode(it)
+        }
+        if (tries <= 0) { then(false); return }
+        handler.postDelayed({ pickTextOnly(appName, tries - 1, then) }, 450)
+    }
+
+    /** 공유 창에서 이 앱을 찾아 누름. 안 보이면 '더보기'를 한 번 열고, 그래도 없으면 목록을 넘겨 가며 찾음 */
+    private fun pickShareTarget(appName: String, tries: Int, openedMore: Boolean, then: (Boolean) -> Unit) {
+        if (stopCollect) { then(false); return }
+        findAny({ it == "대화에서 찾기" || it == appName || it.startsWith(appName) })?.let { n ->
+            if (tapNode(n)) { handler.postDelayed({ then(true) }, 900); return }
+        }
+        if (tries <= 0) { then(false); return }
+        var more = openedMore
+        if (!more) {
+            findAny({ it == "더보기" || it == "More" || it.contains("더 보기") })?.let { n ->
+                if (tapNode(n)) { more = true; Prefs(this).logExport("5 공유 창 '더보기' 누름") }
+            }
+        } else {
+            allRoots().forEach { r -> walk(r) { x -> x.isScrollable && x.isVisibleToUser }?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD) }
+        }
+        handler.postDelayed({ pickShareTarget(appName, tries - 1, more, then) }, 600)
+    }
+
+    /**
+     * 지금 카톡 대화방의 '대화 내용 내보내기 → 텍스트만 보내기'를 눌러 이 앱('대화에서 찾기')으로 보냄.
+     * 카톡 화면 구성이 바뀌어 못 찾으면 [done](false, 막힌 단계)
+     */
+    fun exportChat(done: (Boolean, String) -> Unit) {
+        val log = Prefs(this)
+        if (!startWork()) { log.logExport("내보내기: 다른 작업 중이라 시작 못 함"); done(false, "시작"); return }
+        log.logExport("내보내기 시작")
+        showCover("이 대화방의 대화를 내보내는 중이에요…\n내보낸 대화는 이 휴대폰 안에만 보관돼요", "그만두기")
+        val appName = getString(R.string.app_name)
+        fun end(ok: Boolean, step: String) {
+            collecting = false
+            if (ok) {
+                log.logExport("내보내기: 공유 창에서 이 앱을 고름")
+                removeCover()
+            } else {
+                // 어디서 막혔는지 기록 (그때 화면에 보이던 버튼 이름들도)
+                val seen = allRoots().flatMap { r ->
+                    val l = ArrayList<String>()
+                    walk(r) { n -> if (n.isVisibleToUser && (n.isClickable || n.contentDescription != null)) label(n).takeIf { it.isNotEmpty() }?.let { l += it.take(20) }; l.size > 25 }
+                    l
+                }.distinct().take(25)
+                log.logExport("내보내기 막힘: $step · 보이던 것: ${seen.joinToString(", ")}")
+                // 덮개를 남겨 직접 할 순서를 크게 보여 줌 (닫기를 눌러야 사라짐)
+                coverText?.text = "$step 단계를 자동으로 못 눌렀어요.\n\n직접 이렇게 눌러 주세요:\n☰ → ⚙ 설정 → 대화 내용 내보내기\n→ 텍스트만 보내기 → '대화에서 찾기'\n\n물어보신 질문은 기억해 두었다가 이어서 찾아 드려요."
+                coverStop?.text = "닫고 직접 하기"
+                coverStop?.setOnClickListener { removeCover() }
+            }
+            done(ok, step)
+        }
+        // 1) 오른쪽 위 ☰ 메뉴
+        tapWhenShown({ it.contains("메뉴") || it.contains("서랍") || it == "Menu" }, 8, false, iconOnly = true, then = { ok1 ->
+            if (!ok1) return@tapWhenShown end(false, "오른쪽 위 ☰ 메뉴")
+                        log.logExport("1 메뉴 열림")
+            // 2) 서랍 아래 ⚙ 설정
+            tapWhenShown({ it == "설정" || it == "채팅방 설정" || it.contains("Settings") }, 8, false, iconOnly = true, then = { ok2 ->
+                if (!ok2) return@tapWhenShown end(false, "아래쪽 ⚙ 설정")
+                        log.logExport("2 설정 열림")
+                // 3) 대화 내용 내보내기
+                tapWhenShown({ it.contains("대화 내용 내보내기") || it.contains("Export") }, 10, true) { ok3 ->
+                    if (!ok3) return@tapWhenShown end(false, "'대화 내용 내보내기'")
+                        log.logExport("3 내보내기 누름")
+                    // 4) 텍스트만 보내기
+                    pickTextOnly(appName, 12) { ok4 ->
+                        if (!ok4) return@pickTextOnly end(false, "'텍스트만 보내기'")
+                        log.logExport("4 텍스트만 보내기 누름")
+                        // 5) 공유 창에서 이 앱('대화에서 찾기') 고르기 — 첫 줄에 없으면 '더보기'를 열어 찾음
+                        pickShareTarget(appName, 16, false) { ok5 ->
+                            end(ok5, if (ok5) "" else "공유 창에서 '대화에서 찾기'")
+                        }
+                    }
+                }
+            })
+        })
     }
 
     private fun findEditable(root: AccessibilityNodeInfo?) = walk(root) { it.isEditable && it.isVisibleToUser }
@@ -400,6 +742,7 @@ class KakaoAccessibilityService : AccessibilityService() {
     private fun openHelper(ask: Boolean = false) {
         closeMenu()
         HelperActivity.pendingScreenText = screenTexts().joinToString("\n")
+        HelperActivity.pendingTitle = chatTitle()
         val intent = Intent(this, HelperActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             .putExtra(HelperActivity.EXTRA_ASK, ask)
@@ -414,6 +757,72 @@ class KakaoAccessibilityService : AccessibilityService() {
     // ───────── 꾹 누르면 버튼 둘레에 펼쳐지는 동그라미 메뉴 ─────────
 
     private var menu: FrameLayout? = null
+
+    private class MenuEntry(val key: String, val label: String, val on: Boolean, val act: () -> Unit)
+    /** 지금 놓인 순서 (자리 번호 = 목록 순서) */
+    private val menuOrder = mutableListOf<Pair<MenuEntry, View>>()
+    private var menuSlots: List<Pair<Float, Float>> = emptyList()
+    private var menuSlotSize = 0
+
+    /** 동그라미 누르기 = 고르기, 꾹 누른 채 끌기 = 자리 옮기기 */
+    @SuppressLint("ClickableViewAccessibility")
+    private fun attachReorder(v: View, entry: MenuEntry) {
+        var downX = 0f; var downY = 0f; var startX = 0f; var startY = 0f
+        var dragging = false; var moved = false
+        val slop = Ui.dp(this, 10)
+        val startDrag = Runnable {
+            if (moved) return@Runnable
+            dragging = true
+            buzz()
+            v.bringToFront()
+            v.animate().scaleX(1.2f).scaleY(1.2f).setStartDelay(0).setDuration(120).start()
+        }
+        v.setOnTouchListener { _, e ->
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = e.rawX; downY = e.rawY; startX = v.translationX; startY = v.translationY
+                    dragging = false; moved = false
+                    handler.postDelayed(startDrag, LONG_PRESS_MS)
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = e.rawX - downX; val dy = e.rawY - downY
+                    if (!dragging && Math.hypot(dx.toDouble(), dy.toDouble()) > slop) { moved = true; handler.removeCallbacks(startDrag) }
+                    if (dragging && menuSlots.isNotEmpty()) {
+                        v.translationX = startX + dx; v.translationY = startY + dy
+                        // 손가락에 가장 가까운 자리로 옮기고, 나머지는 한 칸씩 비켜 줌
+                        val cx = v.translationX + menuSlotSize / 2f; val cy = v.translationY + menuSlotSize / 2f
+                        val target = menuSlots.indices.minByOrNull { i -> Math.hypot((menuSlots[i].first - cx).toDouble(), (menuSlots[i].second - cy).toDouble()) } ?: return@setOnTouchListener true
+                        val cur = menuOrder.indexOfFirst { it.second === v }
+                        if (cur >= 0 && target != cur) {
+                            menuOrder.add(target, menuOrder.removeAt(cur))
+                            layoutMenu(except = v)
+                        }
+                    }
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    handler.removeCallbacks(startDrag)
+                    if (dragging) {
+                        dragging = false
+                        layoutMenu(except = null)
+                        Prefs(this).menuOrder = menuOrder.map { it.first.key }
+                        menuItems = menuOrder.map { it.second to it.first.act }
+                    } else if (!moved && e.actionMasked == MotionEvent.ACTION_UP) entry.act()
+                }
+            }
+            true
+        }
+    }
+
+    /** 놓인 순서대로 자리에 맞춰 움직임 ([except] 는 지금 끌고 있는 동그라미) */
+    private fun layoutMenu(except: View?) {
+        val sz = menuSlotSize
+        menuOrder.forEachIndexed { i, (_, view) ->
+            if (view === except || i >= menuSlots.size) return@forEachIndexed
+            val (x, y) = menuSlots[i]
+            view.animate().translationX(x - sz / 2f).translationY(y - sz / 2f).scaleX(1f).scaleY(1f)
+                .setStartDelay(0).setDuration(160).start()
+        }
+    }
     private var menuItems: List<Pair<View, () -> Unit>> = emptyList()
     private var menuHot: View? = null
 
@@ -438,13 +847,16 @@ class KakaoAccessibilityService : AccessibilityService() {
             PixelFormat.TRANSLUCENT,
         ).apply { gravity = Gravity.TOP or Gravity.START }
 
-        // 말투 4가지 + 찾기 + 설정. 지금 고른 말투는 노란색
-        val entries: List<Triple<String, Boolean, () -> Unit>> =
-            Mode.values().map { m -> Triple("${m.emoji}\n${m.label}", m == prefs.mode) { prefs.mode = m; openHelper() } } +
-                Triple("🔎\n찾기", false) { openHelper(ask = true) } +
-                Triple("⚙️\n설정", false) { openQuickSettings() }
+        // 말투들 + 찾기 + 설정. 지금 고른 말투는 진하게. 순서는 사용자가 끌어서 바꾼 대로
+        val all = Mode.values().map { m -> MenuEntry(m.name, "${m.emoji}\n${m.label}", m == prefs.mode) { prefs.mode = m; openHelper() } } +
+            MenuEntry("ASK", "🔎\n찾기", false) { openHelper(ask = true) } +
+            MenuEntry("SETTINGS", "⚙️\n설정", false) { openQuickSettings() }
+        val savedOrder = prefs.menuOrder
+        val entries = savedOrder.mapNotNull { k -> all.firstOrNull { it.key == k } } + all.filter { it.key !in savedOrder }
         val size = Ui.dp(this, 78)
-        val items = entries.map { (label, on, act) ->
+        menuOrder.clear()
+        val items = entries.map { entry ->
+            val (label, on, act) = Triple(entry.label, entry.on, entry.act)
             val item = TextView(this).apply {
                 text = label
                 gravity = Gravity.CENTER
@@ -456,11 +868,20 @@ class KakaoAccessibilityService : AccessibilityService() {
                 elevation = Ui.dp(this@KakaoAccessibilityService, 8).toFloat()
                 contentDescription = label.replace("\n", " ")
                 alpha = 0f; scaleX = 0.3f; scaleY = 0.3f
-                setOnClickListener { act() }
             }
+            attachReorder(item, entry)
+            menuOrder += entry to item
             root.addView(item, FrameLayout.LayoutParams(size, size))
             item to act
         }
+        // 사용법 한 줄
+        root.addView(TextView(this).apply {
+            text = "동그라미를 꾹 누른 채 끌면 순서를 바꿀 수 있어요"
+            setTextColor(0xCCFFFFFF.toInt())
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            gravity = Gravity.CENTER
+        }, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT,
+            Gravity.BOTTOM).apply { bottomMargin = Ui.dp(this@KakaoAccessibilityService, 48) })
         runCatching { wm.addView(root, lp); menu = root; menuItems = items }
             .onFailure { diag("메뉴 그리기 실패: ${it.javaClass.simpleName} ${it.message}"); return }
         buzz()
@@ -472,21 +893,20 @@ class KakaoAccessibilityService : AccessibilityService() {
             val cx = bl[0] + b.width / 2f - o[0]
             val cy = bl[1] + b.height / 2f - o[1]
             val w = root.width; val h = root.height
-            // 버튼이 오른쪽에 있으면 왼쪽으로, 왼쪽에 있으면 오른쪽으로 반원(위→아래)으로 펼침.
-            // 버튼이 화면 위·아래 끝에 있어도 반원이 화면 안에 다 들어오게 중심을 옮김
-            val r = Ui.dp(this, if (items.size > 6) 162 else 140)   // 동그라미가 많으면 반원을 크게
-            val toward = if (cx > w / 2f) Math.PI else 0.0
-            val spread = Math.PI
-            val half = r + size / 2f
-            val acy = if (h > half * 2) cy.coerceIn(half, h - half) else h / 2f
+            // 같은 크기·같은 간격으로 반원 위에 놓음 (화면에 안 들어가면 반원 전체를 옮기거나 다 같이 줄임)
+            val p = kr.yunho.talkhelper.core.MenuLayout.place(
+                n = items.size, cx = cx, cy = cy, w = w.toFloat(), h = h.toFloat(),
+                maxRadius = Ui.dp(this, 172).toFloat(), maxSize = size.toFloat(),
+                gap = Ui.dp(this, 8).toFloat(), margin = Ui.dp(this, 8).toFloat(), minSize = Ui.dp(this, 56).toFloat(),
+            )
+            val sz = p.size.toInt()
+            menuSlots = p.centers
+            menuSlotSize = sz
             items.forEachIndexed { i, (v, _) ->
-                // 위에서부터 차례로 (오른쪽 버튼이면 시계 반대 방향)
-                val t = i.toDouble() / (items.size - 1)
-                val a = if (toward == 0.0) -spread / 2 + spread * t else Math.PI + spread / 2 - spread * t
-                val x = (cx + (r * Math.cos(a)).toFloat() - size / 2f).coerceIn(0f, maxOf(0, w - size).toFloat())
-                val y = (acy + (r * Math.sin(a)).toFloat() - size / 2f).coerceIn(0f, maxOf(0, h - size).toFloat())
-                v.translationX = cx - size / 2f; v.translationY = cy - size / 2f
-                v.animate().translationX(x).translationY(y).alpha(1f).scaleX(1f).scaleY(1f)
+                if (sz != size) v.layoutParams = FrameLayout.LayoutParams(sz, sz)
+                val (x, y) = p.centers[i]
+                v.translationX = cx - sz / 2f; v.translationY = cy - sz / 2f
+                v.animate().translationX(x - sz / 2f).translationY(y - sz / 2f).alpha(1f).scaleX(1f).scaleY(1f)
                     .setStartDelay(i * 50L).setDuration(220).start()
             }
         }

@@ -172,11 +172,13 @@ class HelperActivity : Activity() {
         card.add(head, 0)
 
         // 말투 모드 (마지막에 고른 것을 기억)
-        val modeRow = Ui.hbox(ctx)
         val buttons = LinkedHashMap<Mode, Button>()
-        for (m in Mode.values()) buttons[m] = modeRow.add(small("${m.emoji} ${m.label}", sp = 14f) { selectMode(m) }) as Button
+        Mode.values().toList().chunked(2).forEachIndexed { i, pair ->
+            val modeRow = Ui.hbox(ctx)
+            for (m in pair) buttons[m] = modeRow.add(small("${m.emoji} ${m.label}", sp = 14f) { selectMode(m) }) as Button
+            card.add(modeRow, if (i == 0) 6 else 4)
+        }
         modeButtons = buttons
-        card.add(modeRow, 6)
         paintModes()
 
         // 보내는 방식 (바로 / 3초 뒤 / 확인 후)

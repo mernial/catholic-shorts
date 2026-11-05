@@ -301,7 +301,8 @@ class HelperActivity : Activity() {
             visibility = View.GONE
             setPadding(0, Ui.dp(ctx, 6), 0, 0)
             setOnClickListener {
-                startActivity(Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                if (Updater.STORE) Updater.openStore(ctx)
+                else startActivity(Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                 finish()
             }
         }

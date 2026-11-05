@@ -67,8 +67,16 @@ class MainActivity : Activity() {
     private fun updateBanner() {
         val info = update ?: return
         val box = Ui.vbox(this, 16, Ui.MINE)
-        box.add(Ui.text(this, "🔔 새 버전이 나왔어요", 22f, bold = true), 0)
+        box.add(Ui.text(this, "🔔 새 버전이 나왔어요 (${info.versionName})", 22f, bold = true), 0)
         if (info.notes.isNotBlank()) box.add(Ui.text(this, info.notes, 14f, color = Ui.MUTED), 4)
+        // 플레이 스토어판: 누르면 스토어의 이 앱 화면이 열리고, 거기서 '업데이트'를 누름
+        if (Updater.STORE) {
+            box.add(Ui.button(this, "⬇️  업데이트하러 가기", Ui.BROWN, Ui.YELLOW, sp = 22f) { Updater.openStore(this) }
+                .apply { minHeight = Ui.dp(this@MainActivity, 80) }, 10)
+            box.add(Ui.text(this, "Play 스토어가 열리면 '업데이트'를 누르세요.", 14f, color = Ui.MUTED), 6)
+            body.add(box, 12)
+            return
+        }
         val btn = Ui.button(this, updating ?: "⬇️  지금 업데이트", Ui.BROWN, Ui.YELLOW, sp = 22f) {
             if (updating != null || !Updater.ensureInstallAllowed(this)) return@button
             updating = "받는 중… 0%"

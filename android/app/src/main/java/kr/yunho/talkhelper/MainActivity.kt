@@ -294,6 +294,15 @@ class MainActivity : Activity() {
         group.setOnCheckedChangeListener { _, id -> SendMode.values().getOrNull(id - 3000)?.let { p.sendMode = it } }
         body.add(group, 6)
 
+        // 찾은 내용 읽어 주기 (기본: 안 읽음)
+        body.add(android.widget.Switch(this).apply {
+            text = "찾은 내용 소리로 읽어 주기"
+            textSize = 18f * p.textScale
+            setTextColor(Ui.BROWN)
+            isChecked = p.readAnswers
+            setOnCheckedChangeListener { _, on -> p.readAnswers = on }
+        }, 24)
+
         body.add(View(this), 40)
     }
 

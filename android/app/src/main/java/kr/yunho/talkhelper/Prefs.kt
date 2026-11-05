@@ -40,6 +40,11 @@ class Prefs(ctx: Context) {
             ?: if (sp.getBoolean("autoSend", true)) SendMode.COUNTDOWN else SendMode.CONFIRM
         set(v) = sp.edit().putString("sendMode", v.name).apply()
 
+    /** 찾은 내용을 소리로 읽어 주기 (기본: 안 읽음) */
+    var readAnswers: Boolean
+        get() = sp.getBoolean("readAnswers", false)
+        set(v) = sp.edit().putBoolean("readAnswers", v).apply()
+
     /** 카톡 위 🎤 버튼 켜기/끄기 (앱 첫 화면) */
     var enabled: Boolean
         get() = sp.getBoolean("enabled", true)

@@ -151,9 +151,19 @@ class AskActivity : Activity(), TextToSpeech.OnInitListener {
             // 카드에서 물어본 질문이 기다리고 있으면 바로 찾아서 정리해 드림 (5분 안)
             pendingQuestion?.takeIf { System.currentTimeMillis() - it.second < 5 * 60_000 }?.let { (q, _) ->
                 pendingQuestion = null
-                Prefs(this).logExport("기다리던 질문으로 찾기 시작")
-                question.setText(q)
-                search()
+                Prefs(this).logExport("기다리던 질문으로 찾기 시작 (카톡 위 카드)")
+                // 이 화면은 닫고, 카톡 대화방으로 돌아가 그 위에 작은 카드로 정리된 내용을 띄움
+                val app = applicationContext
+                val room = saved.room
+                finish()
+                val open = {
+                    app.startActivity(Intent(app, HelperActivity::class.java)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                        .putExtra(HelperActivity.EXTRA_QUESTION, q)
+                        .putExtra(HelperActivity.EXTRA_ROOM, room))
+                }
+                val svc = KakaoAccessibilityService.instance
+                if (svc != null) Bg.main.postDelayed({ svc.backToChat({ open() }) }, 500) else open()
                 return@run
             }
             askWhoIsMe(saved.room)
@@ -246,10 +256,7 @@ class AskActivity : Activity(), TextToSpeech.OnInitListener {
         body.add(answer, 12)
         photoBox = Ui.vbox(this).apply { visibility = View.GONE }
         body.add(photoBox, 8)
-        val listenRow = Ui.hbox(this).apply { visibility = View.GONE; tag = "replay" }
-        listenRow.add(Ui.button(this, "🔊 다시 듣기", Ui.CARD, sp = 17f) { speak(answer.text.toString()) })
-        listenRow.add(Ui.button(this, "⏹ 그만 읽기", Ui.CARD, sp = 17f) { tts?.stop() })
-        body.add(listenRow, 8)
+        body.add(View(this).apply { visibility = View.GONE; tag = "replay" }, 0)
         body.add(View(this), 40)
     }
 
@@ -314,7 +321,7 @@ class AskActivity : Activity(), TextToSpeech.OnInitListener {
             answer.text = text
             answer.visibility = View.VISIBLE
             body.findViewWithTag<View>("replay")?.visibility = View.VISIBLE
-            if (r.isSuccess) speak(text)
+            if (r.isSuccess && Prefs(this).readAnswers) speak(text)
             (body.parent as? ScrollView)?.post { (body.parent as ScrollView).smoothScrollTo(0, answer.top) }
         }
     }

@@ -42,6 +42,9 @@ class HelperActivity : Activity() {
         @Volatile var pendingScreenText: String? = null
         /** 버튼을 누른 순간의 카톡 방 이름 */
         @Volatile var pendingTitle: String? = null
+        /** 내보낸 대화가 저장된 뒤, 기다리던 질문을 이 카드에서 바로 찾아 보여 줄 때 */
+        const val EXTRA_QUESTION = "question"
+        const val EXTRA_ROOM = "room"
         /** true 면 '대화에서 찾기'로 바로 듣기 시작 (도우미 버튼을 꾹 눌러 🔎 고른 경우) */
         const val EXTRA_ASK = "ask"
         private const val REQ_MIC = 7
@@ -113,7 +116,17 @@ class HelperActivity : Activity() {
         heard.clear(); partial = ""; lastSpoken = ""
         mode = prefs.mode   // 동그라미 메뉴에서 고른 말투
         val ask = intent?.getBooleanExtra(EXTRA_ASK, false) == true
+        val readyQuestion = intent?.getStringExtra(EXTRA_QUESTION)
+        val readyRoom = intent?.getStringExtra(EXTRA_ROOM)
         build()
+        // 내보내기가 끝나 저장된 대화에서 바로 찾기 (듣기 없이)
+        if (readyQuestion != null && readyRoom != null) {
+            heardView.text = "물어본 것: $readyQuestion"
+            talkRowView.visibility = View.GONE
+            val saved = ChatStore.chatText(this, readyRoom).orEmpty()
+            answerFrom(readyQuestion, saved, readyRoom, 0)
+            return
+        }
         // 버튼을 누르자마자 바로 듣기 시작
         if (prefs.apiKey.isBlank()) showStatus("⚠️ 아직 준비가 안 됐어요. '${getString(R.string.app_name)}' 앱을 열어 설정을 마쳐 주세요.", Ui.RED)
         else {
@@ -209,6 +222,7 @@ class HelperActivity : Activity() {
 
         // 말하기 + 들은 말
         val talkRow = Ui.hbox(ctx)
+        talkRowView = talkRow
         micButton = small("", Ui.BROWN, Ui.YELLOW, sp = 16f) { if (!listening) askMode = false; toggleMic() }
         talkRow.add(micButton, weight = 2f)
         // ⌨️·🔎 는 숨김 (찾기는 버튼을 꾹 눌러 🔎)
@@ -266,14 +280,19 @@ class HelperActivity : Activity() {
 
         // 대화에서 찾은 답
         answerBox = Ui.vbox(ctx, 10, Ui.THEM).apply { visibility = View.GONE }
-        answerText = Ui.text(ctx, "", 18f).apply { setTextIsSelectable(true) }
+        // 정리된 내용은 휴대폰 기본 글씨 크기로
+        answerText = TextView(ctx).apply {
+            setTextColor(Ui.BROWN)
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 15f)
+            setLineSpacing(0f, 1.15f)
+            setTextIsSelectable(true)
+        }
         answerBox.add(answerText, 0)
         answerPhotos = Ui.vbox(ctx).apply { visibility = View.GONE }
         answerBox.add(answerPhotos, 8)
         val answerRow = Ui.hbox(ctx)
-        answerRow.add(small("📍 대화에서 보기", Ui.BROWN, Ui.YELLOW, sp = 15f) { goToMessage() }, weight = 1.4f)
-        answerRow.add(small("🔊 듣기", sp = 15f) { speak(answerText.text.toString()) })
-        answerRow.add(small("⏹ 그만", sp = 15f) { tts?.stop() })
+        answerRow.add(small("📍 해당 메시지로 이동", Ui.BROWN, Ui.YELLOW, sp = 15f) { goToMessage() }, weight = 1.6f)
+        answerRow.add(small("닫기", sp = 15f) { tts?.stop(); finish() })
         answerBox.add(answerRow, 8)
         card.add(answerBox, 8)
 
@@ -486,6 +505,7 @@ class HelperActivity : Activity() {
 
     /** 이 대화방을 미리 '내보내기'로 저장해 뒀으면 그 전체 대화 + 지금 화면 */
     private var roomTitle: String? = null
+    private lateinit var talkRowView: View
 
     private fun chatForThisRoom(): Pair<String, String?> {
         val screen = screenText.orEmpty()
@@ -578,7 +598,8 @@ class HelperActivity : Activity() {
                     14f, color = Ui.MUTED), 0)
                 answerPhotos.visibility = if (answerPhotos.childCount > 0) View.VISIBLE else View.GONE
                 answerBox.visibility = View.VISIBLE
-                speak(text)
+                talkRowView.visibility = View.GONE   // 정리된 내용과 버튼 두 개만
+                if (prefs.readAnswers) speak(text)   // 읽어 주기는 설정에서 켠 경우만
             }.onFailure { showStatus((it as? HelperException)?.message ?: "문제가 생겼어요: ${it.message}", Ui.RED) }
         }
     }

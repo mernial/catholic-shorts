@@ -128,6 +128,17 @@ class KakaoAccessibilityService : AccessibilityService() {
      * 카톡 화면에 보이는 글. 오른쪽에 붙은 말풍선(내가 보낸 말)은 앞에 "나: " 를 붙여
      * AI 가 누가 한 말인지 헷갈리지 않게 함 (상대가 나를 부르는 '신부님' 같은 호칭을 상대에게 쓰는 일 방지)
      */
+    /**
+     * 대화 내보내기를 마친 뒤 카톡 설정 화면들을 뒤로 닫아 대화방으로 돌아감
+     * (입력창이 보이면 대화방에 온 것). 많아야 네 번 뒤로.
+     */
+    fun backToChat(done: () -> Unit, left: Int = 4) {
+        val inChat = findEditable(kakaoRoot()) != null && chatList(kakaoRoot()) != null
+        if (inChat || left <= 0) { handler.postDelayed({ done() }, 250); return }
+        performGlobalAction(GLOBAL_ACTION_BACK)
+        handler.postDelayed({ backToChat(done, left - 1) }, 550)
+    }
+
     /** 지금 카톡 대화방 이름 (화면 맨 위 왼쪽에 있는 제목 글자) */
     fun chatTitle(): String? {
         val root = kakaoRoot() ?: return null

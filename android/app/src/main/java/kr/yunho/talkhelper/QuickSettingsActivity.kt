@@ -33,6 +33,14 @@ class QuickSettingsActivity : Activity() {
             choice(card, "${m.label} 보내기", m.desc) { prefs.sendMode = m; paint(); saved() }
         }
 
+        card.add(android.widget.Switch(this).apply {
+            text = "찾은 내용 소리로 읽어 주기"
+            textSize = 17f
+            setTextColor(Ui.BROWN)
+            isChecked = prefs.readAnswers
+            setOnCheckedChangeListener { _, on -> prefs.readAnswers = on; saved() }
+        }, 18)
+
         card.add(Ui.button(this, "닫기", sp = 19f) { finish() }, 18)
 
         // 카톡 위 🎤 버튼 끄기 (다시 켜려면 앱에서)

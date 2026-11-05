@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.provider.DocumentsContract
 import kr.yunho.talkhelper.core.ChatSearch
+import kr.yunho.talkhelper.core.MyStyle
 import kr.yunho.talkhelper.core.PhotoFind
 import java.io.BufferedInputStream
 import java.io.File
@@ -125,6 +126,28 @@ object ChatStore {
             f to (PhotoFind.nameTime(f.name) ?: LocalDateTime.ofInstant(Instant.ofEpochMilli(f.lastModified()), ZoneId.systemDefault()))
         }
         return PhotoFind.pick(timed, at)
+    }
+
+    // ───────── 내 말투 ─────────
+
+    fun chatText(c: Context, room: String): String? = File(dir(c), "$room.txt").takeIf { it.exists() }?.readText()
+
+    /** 이 방 대화에서 '나'인 사람 이름. 저장해 둔 것 → 설정 이름과 맞는 사람 → 여러 방에 공통으로 나오는 사람 */
+    fun meFor(c: Context, room: String, chat: String = chatText(c, room).orEmpty()): String? {
+        val p = Prefs(c)
+        val senders = MyStyle.senders(chat)
+        p.kakaoMe(room)?.takeIf { it in senders }?.let { return it }
+        val others = AskActivity.savedRooms(c).filter { it != room }.take(5)
+            .map { r -> MyStyle.senders(chatText(c, r).orEmpty()) }
+        return MyStyle.guessMe(p.myName, listOf(senders) + others)?.also { p.setKakaoMe(room, it) }
+    }
+
+    /** 이 방에서 내가 보낸 최근 메시지 (내 말투 예시). 방을 저장하지 않았거나 내가 누군지 모르면 빈 목록 */
+    fun myStyle(c: Context, room: String?): List<String> {
+        val r = room ?: return emptyList()
+        val chat = chatText(c, r) ?: return emptyList()
+        val me = meFor(c, r, chat) ?: return emptyList()
+        return MyStyle.examples(chat, me)
     }
 
     fun delete(c: Context, room: String) {

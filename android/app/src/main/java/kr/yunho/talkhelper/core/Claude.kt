@@ -34,8 +34,11 @@ class Claude(apiKey: String, baseUrl: String? = null) {
      * 내가 대충 말한 것을 [mode] 말투의 카톡 메시지로. [screenText] 는 그 순간 카톡 화면에 보이던 글.
      * 기본은 저렴한 모델, [careful] 이면 뉘앙스를 더 섬세하게 다루는 모델
      */
-    fun rewrite(mode: Mode, spoken: String, screenText: String?, myName: String, myRole: String, careful: Boolean = false): String =
-        ask(Prompts.system(mode), Prompts.user(mode, spoken, screenText, myName, myRole), if (careful) CAREFUL_MODEL else FAST_MODEL)
+    fun rewrite(
+        mode: Mode, spoken: String, screenText: String?, myName: String, myRole: String,
+        careful: Boolean = false, myStyle: List<String> = emptyList(),
+    ): String =
+        ask(Prompts.system(mode), Prompts.user(mode, spoken, screenText, myName, myRole, myStyle), if (careful) CAREFUL_MODEL else FAST_MODEL)
             .trim().removeSurrounding("\"").trim()
             // 사용자가 말하지 않은 호칭(예: 내 신분인 '신부님')으로 상대를 부르면 바로잡음
             .let { TitleGuard.fix(it, spoken) }

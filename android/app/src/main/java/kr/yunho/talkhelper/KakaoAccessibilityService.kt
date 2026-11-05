@@ -472,7 +472,7 @@ class KakaoAccessibilityService : AccessibilityService() {
             val w = root.width; val h = root.height
             // 버튼이 오른쪽에 있으면 왼쪽으로, 왼쪽에 있으면 오른쪽으로 반원(위→아래)으로 펼침.
             // 버튼이 화면 위·아래 끝에 있어도 반원이 화면 안에 다 들어오게 중심을 옮김
-            val r = Ui.dp(this, 140)
+            val r = Ui.dp(this, if (items.size > 6) 162 else 140)   // 동그라미가 많으면 반원을 크게
             val toward = if (cx > w / 2f) Math.PI else 0.0
             val spread = Math.PI
             val half = r + size / 2f

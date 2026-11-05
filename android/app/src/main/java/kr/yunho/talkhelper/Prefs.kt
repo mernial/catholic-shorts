@@ -20,6 +20,11 @@ class Prefs(ctx: Context) {
     var myName: String
         get() = sp.getString("myName", "") ?: ""
         set(v) = sp.edit().putString("myName", v).apply()
+    /** 내보낸 카톡 대화에 찍힌 '내 카톡 이름' (방마다 다를 수 있어 방 이름별로, 없으면 공통) */
+    fun kakaoMe(room: String): String? = sp.getString("kakaoMe:$room", null) ?: sp.getString("kakaoMe", null)
+    fun setKakaoMe(room: String, name: String) =
+        sp.edit().putString("kakaoMe:$room", name).putString("kakaoMe", name).apply()
+
     var myRole: String
         get() = sp.getString("myRole", "") ?: ""
         set(v) = sp.edit().putString("myRole", v).apply()

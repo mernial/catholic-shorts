@@ -105,6 +105,26 @@ class AskActivity : Activity(), TextToSpeech.OnInitListener {
             val photos = if (saved.photos > 0) " 사진 ${saved.photos}장도 함께 저장했어요." else ""
             Toast.makeText(this, "'${saved.room}' 대화를 저장했어요.$photos 이제 물어보세요.", Toast.LENGTH_LONG).show()
             render()
+            askWhoIsMe(saved.room)
+        }
+    }
+
+    /** '내 말투'를 배우려면 이 대화에서 누가 '나'인지 알아야 함. 짐작이 안 되면 한 번 물어봄 */
+    private fun askWhoIsMe(room: String, force: Boolean = false) {
+        Bg.run({
+            val chat = ChatStore.chatText(this, room).orEmpty()
+            (if (force) null else ChatStore.meFor(this, room, chat)) to kr.yunho.talkhelper.core.MyStyle.senders(chat).take(8)
+        }) { r ->
+            val (me, senders) = r.getOrNull() ?: return@run
+            if (isFinishing || me != null || senders.isEmpty()) return@run
+            AlertDialog.Builder(this)
+                .setTitle("이 대화에서 '나'는 누구예요?")
+                .setItems(senders.toTypedArray()) { _, i ->
+                    Prefs(this).setKakaoMe(room, senders[i])
+                    Toast.makeText(this, "이 방에서의 내 말투를 배웠어요. 🪞 내 말투로 다듬을 수 있어요.", Toast.LENGTH_LONG).show()
+                    render()
+                }
+                .setNegativeButton("나중에", null).show()
         }
     }
 
@@ -142,6 +162,11 @@ class AskActivity : Activity(), TextToSpeech.OnInitListener {
             body.add(Ui.button(this, "이 대화 지우기", Ui.CARD, Ui.RED, sp = 14f) { confirmDelete(selected!!) }, 6)
         }
         if (selected != null && selected != SCREEN) {
+            val room = selected!!
+            val me = Prefs(this).kakaoMe(room)
+            body.add(Ui.button(this, if (me != null) "🪞 이 방에서 나: $me (바꾸기)" else "🪞 내 말투 배우기: 내 이름 고르기", Ui.CARD, sp = 14f) {
+                askWhoIsMe(room, force = true)
+            }, 8)
             body.add(Ui.text(this,
                 if (ChatStore.hasPhotos(this, selected)) "📷 이 대화는 사진도 함께 저장돼 있어요. \"…할 때 보낸 사진 찾아 줘\"처럼 물어보세요."
                 else "📷 사진도 찾으려면: 카톡 대화방 ☰ → ⚙ → '대화 내용 내보내기' → '모든 메시지 내부 저장소에 저장' 후 아래 버튼으로 그 폴더를 고르세요.",

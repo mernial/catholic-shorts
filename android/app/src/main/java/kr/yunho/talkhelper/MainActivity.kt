@@ -312,6 +312,9 @@ class MainActivity : Activity() {
         }, weight = 0.6f)
         q.add(fine, weight = 1f)
         body.add(q, 8)
+        body.add(Ui.text(this, "※ 섬세하게로 하면 다듬는 데 시간이 더 걸려 보내기가 조금 늦어져요.", 15f, color = Ui.MUTED).apply {
+            gravity = android.view.Gravity.CENTER
+        }, 6)
         body.add(View(this), 40)
     }
 
@@ -363,7 +366,6 @@ class MainActivity : Activity() {
         val pressSend = check("입력창에 넣은 뒤 전송 버튼까지 누르기", p.autoPressSend)
         body.add(pressSend, 12)
 
-        whisperSection(p)
 
         body.add(Ui.button(this, "저장", sp = 22f) {
             p.apiKey = keyFrom(key.text.toString())
@@ -397,83 +399,6 @@ class MainActivity : Activity() {
         sendLog()
     }
 
-    /** 고급 받아쓰기(Whisper) 받기·지우기·켜고 끄기 */
-    private fun whisperSection(p: Prefs) {
-        val box = Ui.vbox(this, 14, Ui.CARD)
-        box.add(Ui.text(this, "고급 받아쓰기 (Whisper)", 18f, bold = true), 0)
-        box.add(Ui.text(this,
-            "휴대폰 안에서 더 정확하게 받아씁니다. 무료이고 음성이 밖으로 나가지 않습니다.\n" +
-                "처음 한 번 약 550MB를 받습니다. 말을 마치고 3초 쉬면 받아쓰기를 시작합니다.",
-            14f, color = Ui.MUTED), 6)
-        body.add(box, 18)
-
-        if (!WhisperEngine.cpuSupported()) {
-            box.add(Ui.text(this, "이 휴대폰에서는 쓸 수 없습니다 (처리 성능 부족). 지금처럼 기본 받아쓰기를 씁니다.", 15f, color = Ui.RED), 8)
-            return
-        }
-        val ram = WhisperEngine.totalRamGb(this)
-        if (ram < 5.5) box.add(Ui.text(this, "메모리가 %.0fGB인 폰이라 느리거나 앱이 꺼질 수 있어요.".format(ram), 14f, color = Ui.RED), 6)
-
-        val status = Ui.text(this, "", 16f, bold = true)
-        box.add(status, 10)
-        val use = CheckBox(this).apply {
-            text = "고급 받아쓰기 사용"
-            textSize = 17f * p.textScale
-            setTextColor(Ui.BROWN)
-            setOnCheckedChangeListener { _, on -> p.whisperOn = on }
-        }
-        val action = Ui.button(this, "", Ui.CARD, sp = 16f) {}
-
-        fun refresh() {
-            val downloading = WhisperEngine.downloadPercent >= 0
-            val ready = WhisperEngine.isDownloaded(this)
-            status.text = when {
-                downloading -> "⬇️ 받는 중… ${WhisperEngine.downloadPercent}%"
-                ready -> "✅ 받음 (${WhisperEngine.modelMb(this)}MB)"
-                else -> "아직 받지 않음"
-            }
-            use.isEnabled = ready
-            use.isChecked = ready && p.whisperOn
-            action.isEnabled = !downloading
-            action.text = if (ready) "🗑️ 받은 파일 지우기" else "⬇️ 받기 (약 550MB, 와이파이 권장)"
-        }
-
-        fun startDownload() {
-            Bg.run({
-                WhisperEngine.download(this) { pct -> Bg.main.post { status.text = "⬇️ 받는 중… $pct%" } }
-            }) { r ->
-                r.onSuccess { p.whisperOn = true; Toast.makeText(this, "고급 받아쓰기를 켰습니다", Toast.LENGTH_LONG).show() }
-                    .onFailure { Toast.makeText(this, "받지 못했어요 (${it.message}). 다시 누르면 이어서 받습니다.", Toast.LENGTH_LONG).show() }
-                refresh()
-            }
-            Bg.main.postDelayed({ refresh() }, 300)
-        }
-
-        action.setOnClickListener {
-            if (WhisperEngine.isDownloaded(this)) {
-                AlertDialog.Builder(this).setMessage("받은 고급 받아쓰기 파일(약 550MB)을 지울까요?\n지우면 기본 받아쓰기를 씁니다.")
-                    .setPositiveButton("지우기") { _, _ -> WhisperEngine.delete(this); p.whisperOn = false; refresh() }
-                    .setNegativeButton("취소", null).show()
-            } else if (!WhisperEngine.onWifi(this)) {
-                AlertDialog.Builder(this).setMessage("와이파이가 아닙니다. 약 550MB를 받으면 데이터 요금이 나올 수 있어요. 그래도 받을까요?")
-                    .setPositiveButton("받기") { _, _ -> startDownload() }
-                    .setNegativeButton("취소", null).show()
-            } else startDownload()
-        }
-        box.add(action, 8)
-        box.add(use, 6)
-        box.add(CheckBox(this).apply {
-            text = "가까운 목소리만 듣기 (TV·옆 사람 소리 무시)"
-            textSize = 16f * p.textScale
-            setTextColor(Ui.BROWN)
-            isChecked = p.nearVoiceOnly
-            setOnCheckedChangeListener { _, on -> p.nearVoiceOnly = on }
-        }, 4)
-        box.add(Ui.text(this, "휴대폰을 입 가까이(한 뼘 안) 대고 말씀하세요. 목소리가 작아 잘 안 들리면 끄세요.", 13f, color = Ui.MUTED), 2)
-        refresh()
-    }
-
-    /** 자동 전송이 안 될 때 원인을 볼 수 있는 기록 */
     private fun sendLog() {
         val log = Prefs(this).lastSendLog
         if (log.isBlank() || log == "성공") return

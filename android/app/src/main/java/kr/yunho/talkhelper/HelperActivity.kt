@@ -329,17 +329,9 @@ class HelperActivity : Activity() {
 
     // ───────── 음성 입력 ─────────
 
-    /** 설정에서 고급 받아쓰기(Whisper)를 켰고, 모델을 받았고, 이 폰이 지원하면 Whisper 사용 */
-    private fun useWhisper() = prefs.whisperOn && WhisperEngine.isDownloaded(this) && WhisperEngine.cpuSupported()
-
     private fun toggleMic() {
-        if (listening) {
-            val rec = whisperRec
-            if (rec != null) { rec.stop(); micButton.isEnabled = false } else stopListening()
-            return
-        }
+        if (listening) { stopListening(); return }
         if (!hasMic()) { requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQ_MIC); return }
-        if (useWhisper()) { startWhisper(); return }
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
             showStatus("이 휴대폰에서 음성 인식을 쓸 수 없습니다. '글로 쓰기'를 이용해 주세요.", Ui.RED)
             return
@@ -356,56 +348,6 @@ class HelperActivity : Activity() {
         heardView.visibility = View.VISIBLE
         showStatus(null)
         listen()
-    }
-
-    // ───────── 고급 받아쓰기 (Whisper) ─────────
-
-    private var whisperRec: SilenceRecorder? = null
-
-    /** 녹음 → 말이 끝나고 3초 조용하면 자동으로 멈춤 → 휴대폰 안에서 받아쓰기 → 다듬기 */
-    private fun startWhisper() {
-        stopCountdown()
-        heard.clear(); partial = ""
-        resultBox.visibility = View.GONE
-        if (::answerBox.isInitialized) answerBox.visibility = View.GONE
-        listening = true; finishing = false
-        micButton.text = "🎙️ 듣는 중 (누르면 끝)"
-        micButton.background = Ui.rounded(this, Ui.GREEN, 18)
-        micButton.setTextColor(Ui.CARD)
-        heardView.text = "듣고 있어요… 다 말하고 잠깐 쉬면 받아씁니다"
-        heardView.visibility = View.VISIBLE
-        showStatus(null)
-
-        val rec = SilenceRecorder(nearOnly = prefs.nearVoiceOnly)
-        whisperRec = rec
-        rec.start(onTick = { secs, speaking ->
-            if (listening && whisperRec === rec) heardView.text = if (speaking) "🎙️ 듣는 중… ${secs}초" else "듣고 있어요…"
-        }) { samples ->
-            if (whisperRec !== rec || isFinishing) return@start
-            whisperRec = null
-            listening = false
-            if (samples == null) {
-                resetMic()
-                heardView.text = if (prefs.nearVoiceOnly) "말씀을 듣지 못했어요. 휴대폰을 입 가까이 대고 다시 눌러 주세요." else "말씀을 듣지 못했어요. 다시 눌러 주세요."
-                return@start
-            }
-            micButton.text = "✍️ 받아쓰는 중…"
-            micButton.isEnabled = false
-            heardView.text = "받아쓰는 중… 몇 초 걸려요"
-            Bg.run({ WhisperEngine.transcribe(this, samples) }) { r ->
-                if (isFinishing) return@run
-                resetMic()
-                r.onSuccess { text ->
-                    val spoken = EndSignal.strip(text)
-                    if (spoken.isBlank()) heardView.text = "말씀을 듣지 못했어요. 다시 눌러 주세요."
-                    else if (askMode) { heardView.text = "물어본 것: $spoken"; askChat(spoken) }
-                    else { heardView.text = "내가 한 말: $spoken"; rewrite(spoken) }
-                }.onFailure {
-                    heardView.text = "고급 받아쓰기에 실패했어요. 다시 눌러 주세요."
-                    showStatus(it.message, Ui.RED)
-                }
-            }
-        }
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
@@ -440,7 +382,6 @@ class HelperActivity : Activity() {
     }
 
     private fun stopRecognizer() {
-        whisperRec?.stop(); whisperRec = null
         listening = false; finishing = false
         runCatching { recognizer?.cancel() }
     }
@@ -683,7 +624,7 @@ class HelperActivity : Activity() {
     private fun rewrite(spoken: String) {
         val claude = ClaudeProvider.get(this) ?: return showStatus("⚠️ 아직 준비가 안 됐어요. '${getString(R.string.app_name)}' 앱을 열어 설정을 마쳐 주세요.", Ui.RED)
         lastSpoken = spoken
-        showStatus("${mode.emoji} '${mode.label}' 말투로 다듬는 중… 잠시만요")
+        showStatus("${mode.emoji} '${mode.label}' 말투로 다듬는 중… " + if (prefs.carefulRewrite) "섬세하게 다듬느라 조금 더 걸려요" else "잠시만요")
         resultBox.visibility = View.GONE
         val m = mode
         Bg.run({
@@ -761,8 +702,6 @@ class HelperActivity : Activity() {
         Bg.main.removeCallbacks(tick)
         stopConfirm()
         tts?.shutdown(); tts = null
-        whisperRec?.stop()
-        whisperRec = null
         runCatching { recognizer?.destroy() }
         recognizer = null
         super.onDestroy()

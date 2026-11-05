@@ -294,27 +294,6 @@ class MainActivity : Activity() {
         group.setOnCheckedChangeListener { _, id -> SendMode.values().getOrNull(id - 3000)?.let { p.sendMode = it } }
         body.add(group, 6)
 
-        // 다듬기: 기본 ⟷ 섬세하게 (밀어서 바꿈)
-        body.add(Ui.text(this, "다듬기", 18f, bold = true), 24)
-        val q = Ui.hbox(this).apply { gravity = android.view.Gravity.CENTER_VERTICAL }
-        val basic = Ui.text(this, "기본", 18f, bold = !p.carefulRewrite).apply { gravity = android.view.Gravity.END }
-        val fine = Ui.text(this, "섬세하게", 18f, bold = p.carefulRewrite)
-        q.add(basic, weight = 1f)
-        q.add(android.widget.Switch(this).apply {
-            isChecked = p.carefulRewrite
-            scaleX = 1.4f; scaleY = 1.4f
-            contentDescription = "기본 또는 섬세하게 다듬기"
-            setOnCheckedChangeListener { _, on ->
-                p.carefulRewrite = on
-                basic.setTypeface(null, if (on) android.graphics.Typeface.NORMAL else android.graphics.Typeface.BOLD)
-                fine.setTypeface(null, if (on) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
-            }
-        }, weight = 0.6f)
-        q.add(fine, weight = 1f)
-        body.add(q, 8)
-        body.add(Ui.text(this, "※ 섬세하게로 하면 다듬는 데 시간이 더 걸려 보내기가 조금 늦어져요.", 15f, color = Ui.MUTED).apply {
-            gravity = android.view.Gravity.CENTER
-        }, 6)
         body.add(View(this), 40)
     }
 

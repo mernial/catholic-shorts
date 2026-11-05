@@ -14,14 +14,12 @@ import kr.yunho.talkhelper.Ui.add
 /**
  * 카톡 위에서 바로 여는 간단한 설정 (도우미 버튼을 꾹 눌러 ⚙️).
  *  - 다듬은 문장 보내는 방식: 바로 / 3초 뒤 / 확인 후
- *  - 다듬기 AI: 기본(빠르고 저렴) / 섬세하게(조금 비쌈)
  * 누르는 즉시 저장됨.
  */
 class QuickSettingsActivity : Activity() {
 
     private lateinit var prefs: Prefs
     private lateinit var sendButtons: Map<SendMode, Button>
-    private lateinit var aiButtons: Map<Boolean, Button>
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -34,12 +32,6 @@ class QuickSettingsActivity : Activity() {
         sendButtons = SendMode.values().associateWith { m ->
             choice(card, "${m.label} 보내기", m.desc) { prefs.sendMode = m; paint(); saved() }
         }
-
-        card.add(Ui.text(this, "다듬는 AI", 17f, bold = true), 18)
-        aiButtons = mapOf(
-            false to choice(card, "기본", "빠르고 대부분 충분해요") { prefs.carefulRewrite = false; paint(); saved() },
-            true to choice(card, "섬세하게", "말투를 더 섬세하게 다듬어요 · 보내기가 조금 늦어져요") { prefs.carefulRewrite = true; paint(); saved() },
-        )
 
         card.add(Ui.button(this, "닫기", sp = 19f) { finish() }, 18)
         paint()
@@ -69,7 +61,6 @@ class QuickSettingsActivity : Activity() {
             b.text = b.text.toString().removePrefix("✅ ").let { if (on) "✅ $it" else it }
         }
         sendButtons.forEach { (m, b) -> mark(b, m == prefs.sendMode) }
-        aiButtons.forEach { (careful, b) -> mark(b, careful == prefs.carefulRewrite) }
     }
 
     private fun saved() = Toast.makeText(this, "저장했어요", Toast.LENGTH_SHORT).show()

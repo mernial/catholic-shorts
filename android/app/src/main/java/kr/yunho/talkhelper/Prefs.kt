@@ -45,11 +45,6 @@ class Prefs(ctx: Context) {
         get() = sp.getBoolean("enabled", true)
         set(v) = sp.edit().putBoolean("enabled", v).apply()
 
-    /** 답장 다듬기를 더 섬세한(조금 비싼) 모델로 */
-    var carefulRewrite: Boolean
-        get() = sp.getBoolean("carefulRewrite", false)
-        set(v) = sp.edit().putBoolean("carefulRewrite", v).apply()
-
     /** 마지막으로 고른 말투 모드 */
     var mode: Mode
         get() = runCatching { Mode.valueOf(sp.getString("mode", Mode.POLITE.name)!!) }.getOrDefault(Mode.POLITE)

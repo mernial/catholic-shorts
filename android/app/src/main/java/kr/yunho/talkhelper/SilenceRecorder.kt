@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import kr.yunho.talkhelper.core.NearVoice
 import kotlin.concurrent.thread
 import kotlin.math.sqrt
 
@@ -15,6 +16,8 @@ class SilenceRecorder(
     private val silenceEndMs: Long = 3000,
     private val noSpeechMs: Long = 10_000,
     private val maxMs: Long = 60_000,
+    /** 가까운 목소리만 듣기: 작은 소리(TV·옆 사람)는 말 시작으로 치지 않고, 받아쓰기 전에 지움 */
+    private val nearOnly: Boolean = false,
 ) {
     @Volatile private var stopRequested = false
 
@@ -41,6 +44,11 @@ class SilenceRecorder(
                 Bg.main.post { onDone(null) }
                 return@thread
             }
+            // 휴대폰이 지원하면 주변 잡음 줄이기를 켬
+            val ns = if (nearOnly && android.media.audiofx.NoiseSuppressor.isAvailable())
+                runCatching { android.media.audiofx.NoiseSuppressor.create(rec.audioSessionId)?.apply { enabled = true } }.getOrNull() else null
+            val levels = ArrayList<Double>()
+            var threshold = 0.0
             try {
                 rec.startRecording()
                 val chunk = ShortArray(rate / 10) // 0.1초
@@ -59,10 +67,11 @@ class SilenceRecorder(
                     var sum = 0.0
                     for (i in 0 until n) sum += chunk[i].toDouble() * chunk[i]
                     val rms = sqrt(sum / n)
+                    levels += rms
                     chunks++
                     // 처음 0.5초로 주변 소음 크기를 잼
                     if (chunks <= 5) { noise += rms / 5; continue }
-                    val threshold = maxOf(noise * 3, 400.0)
+                    threshold = if (nearOnly) NearVoice.threshold(noise) else maxOf(noise * 3, 400.0)
                     val now = System.currentTimeMillis()
                     if (rms > threshold) { speechStarted = true; lastVoice = now }
 
@@ -75,11 +84,16 @@ class SilenceRecorder(
                 }
             } finally {
                 runCatching { rec.stop() }
+                ns?.release()
                 rec.release()
             }
             // 직접 '끝' 을 눌렀으면 소리가 작았어도 1초 이상 녹음된 것은 받아씀
             val usable = speechStarted || (stopRequested && count > rate)
-            val result = if (usable) FloatArray(count) { samples[it] / 32768f } else null
+            val result = when {
+                !usable -> null
+                nearOnly && speechStarted -> NearVoice.gate(samples, count, rate / 10, levels, threshold)
+                else -> FloatArray(count) { samples[it] / 32768f }
+            }
             Bg.main.post { onDone(result) }
         }
     }

@@ -20,7 +20,6 @@ import kr.yunho.talkhelper.core.ChatSearch
 import kr.yunho.talkhelper.core.HelperException
 import java.io.File
 import java.util.Locale
-import java.util.zip.ZipInputStream
 
 /**
  * 대화에서 찾기.
@@ -33,9 +32,10 @@ class AskActivity : Activity(), TextToSpeech.OnInitListener {
     companion object {
         const val EXTRA_SCREEN = "screenText"
         private const val REQ_SPEECH = 11
+        private const val REQ_FOLDER = 12
         private const val SCREEN = "\u0000screen"   // '지금 화면' 을 나타내는 내부 이름
 
-        fun chatsDir(c: Context) = File(c.filesDir, "chats").apply { mkdirs() }
+        fun chatsDir(c: Context) = ChatStore.dir(c)
         fun savedRooms(c: Context): List<String> =
             chatsDir(c).listFiles { f -> f.name.endsWith(".txt") }.orEmpty()
                 .sortedByDescending { it.lastModified() }.map { it.name.removeSuffix(".txt") }
@@ -47,6 +47,7 @@ class AskActivity : Activity(), TextToSpeech.OnInitListener {
     private lateinit var question: android.widget.EditText
     private lateinit var answer: TextView
     private lateinit var status: TextView
+    private lateinit var photoBox: LinearLayout
     private var tts: TextToSpeech? = null
     private var ttsReady = false
 
@@ -77,38 +78,34 @@ class AskActivity : Activity(), TextToSpeech.OnInitListener {
     private fun handle(i: Intent) {
         i.getStringExtra(EXTRA_SCREEN)?.takeIf { it.isNotBlank() }?.let { screenText = it; selected = SCREEN }
         if (i.action == Intent.ACTION_SEND) {
-            val text = runCatching { readShared(i) }.getOrNull()
-            if (text.isNullOrBlank()) {
-                Toast.makeText(this, "대화 파일을 읽지 못했어요. 카톡에서 '텍스트만 보내기'로 다시 해 주세요.", Toast.LENGTH_LONG).show()
-            } else {
-                val room = (ChatSearch.roomName(text) ?: "내보낸 대화").replace(Regex("[\\\\/:*?\"<>|]"), "_").take(60)
-                File(chatsDir(this), "$room.txt").writeText(text)
-                selected = room
-                Toast.makeText(this, "'$room' 대화를 저장했어요. 이제 물어보세요.", Toast.LENGTH_LONG).show()
+            @Suppress("DEPRECATION")
+            val uri: Uri? = if (Build.VERSION.SDK_INT >= 33) i.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+            else i.getParcelableExtra(Intent.EXTRA_STREAM)
+            val text = i.getStringExtra(Intent.EXTRA_TEXT)
+            Toast.makeText(this, "대화를 저장하는 중… 잠시만요", Toast.LENGTH_SHORT).show()
+            importChat {
+                if (uri != null) ChatStore.importStream(this) { contentResolver.openInputStream(uri) }
+                else text?.let { ChatStore.importText(this, it) }
             }
         }
         if (selected == null) selected = savedRooms(this).firstOrNull()
         render()
     }
 
-    /** 공유받은 글이나 파일(.txt 또는 .zip) 읽기 */
-    private fun readShared(i: Intent): String? {
-        @Suppress("DEPRECATION")
-        val uri: Uri? = if (Build.VERSION.SDK_INT >= 33) i.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
-        else i.getParcelableExtra(Intent.EXTRA_STREAM)
-        if (uri == null) return i.getStringExtra(Intent.EXTRA_TEXT)
-        val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return null
-        // zip 이면 안의 .txt 를 꺼냄
-        if (bytes.size > 4 && bytes[0] == 'P'.code.toByte() && bytes[1] == 'K'.code.toByte()) {
-            ZipInputStream(bytes.inputStream()).use { z ->
-                while (true) {
-                    val e = z.nextEntry ?: break
-                    if (!e.isDirectory && e.name.endsWith(".txt", ignoreCase = true)) return z.readBytes().toString(Charsets.UTF_8)
-                }
+    /** 저장은 시간이 걸릴 수 있어(사진이 많으면) 뒤에서 하고, 끝나면 그 방을 고름 */
+    private fun importChat(work: () -> ChatStore.Saved?) {
+        Bg.run(work) { r ->
+            if (isFinishing) return@run
+            val saved = r.getOrNull()
+            if (saved == null) {
+                Toast.makeText(this, "대화 파일을 읽지 못했어요. 카톡에서 다시 내보내 주세요.", Toast.LENGTH_LONG).show()
+                return@run
             }
-            return null
+            selected = saved.room
+            val photos = if (saved.photos > 0) " 사진 ${saved.photos}장도 함께 저장했어요." else ""
+            Toast.makeText(this, "'${saved.room}' 대화를 저장했어요.$photos 이제 물어보세요.", Toast.LENGTH_LONG).show()
+            render()
         }
-        return bytes.toString(Charsets.UTF_8)
     }
 
     private fun chatOf(name: String?): String? = when (name) {
@@ -144,7 +141,14 @@ class AskActivity : Activity(), TextToSpeech.OnInitListener {
         if (selected != null && selected != SCREEN) {
             body.add(Ui.button(this, "이 대화 지우기", Ui.CARD, Ui.RED, sp = 14f) { confirmDelete(selected!!) }, 6)
         }
-        body.add(Ui.text(this, "대화를 새로 내보내면 같은 방은 새 내용으로 바뀝니다.", 13f, color = Ui.MUTED), 6)
+        if (selected != null && selected != SCREEN) {
+            body.add(Ui.text(this,
+                if (ChatStore.hasPhotos(this, selected)) "📷 이 대화는 사진도 함께 저장돼 있어요. \"…할 때 보낸 사진 찾아 줘\"처럼 물어보세요."
+                else "📷 사진도 찾으려면: 카톡 대화방 ☰ → ⚙ → '대화 내용 내보내기' → '모든 메시지 내부 저장소에 저장' 후 아래 버튼으로 그 폴더를 고르세요.",
+                14f, color = Ui.MUTED), 8)
+        }
+        body.add(Ui.button(this, "📁 사진까지 가져오기 (내보낸 폴더 고르기)", Ui.CARD, sp = 15f) { pickFolder() }, 6)
+        body.add(Ui.text(this, "대화를 새로 내보내면 같은 방은 새 내용으로 바뀝니다. 저장은 무료이고, 물어볼 때만 요금이 듭니다.", 13f, color = Ui.MUTED), 6)
 
         // 질문
         body.add(Ui.text(this, "무엇을 찾을까요?", 18f, bold = true), 22)
@@ -164,6 +168,8 @@ class AskActivity : Activity(), TextToSpeech.OnInitListener {
             setTextIsSelectable(true)
         }
         body.add(answer, 12)
+        photoBox = Ui.vbox(this).apply { visibility = View.GONE }
+        body.add(photoBox, 8)
         body.add(Ui.button(this, "🔊 다시 듣기", Ui.CARD, sp = 17f) { speak(answer.text.toString()) }.apply { visibility = View.GONE; tag = "replay" }, 8)
         body.add(View(this), 40)
     }
@@ -171,7 +177,7 @@ class AskActivity : Activity(), TextToSpeech.OnInitListener {
     private fun confirmDelete(name: String) {
         AlertDialog.Builder(this).setMessage("'$name' 대화를 이 앱에서 지울까요? (카톡 대화는 지워지지 않습니다)")
             .setPositiveButton("지우기") { _, _ ->
-                File(chatsDir(this), "$name.txt").delete()
+                ChatStore.delete(this, name)
                 selected = savedRooms(this).firstOrNull() ?: screenText?.let { SCREEN }
                 render()
             }.setNegativeButton("취소", null).show()
@@ -191,10 +197,21 @@ class AskActivity : Activity(), TextToSpeech.OnInitListener {
     @Deprecated("Activity 기본 결과 받기")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQ_FOLDER && resultCode == RESULT_OK) {
+            val tree = data?.data ?: return
+            Toast.makeText(this, "대화와 사진을 가져오는 중… 사진이 많으면 조금 걸려요", Toast.LENGTH_LONG).show()
+            importChat { ChatStore.importTree(this, tree) }
+            return
+        }
         if (requestCode != REQ_SPEECH || resultCode != RESULT_OK) return
         val said = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull() ?: return
         question.setText(said)
         search()
+    }
+
+    private fun pickFolder() {
+        runCatching { startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE), REQ_FOLDER) }
+            .onFailure { Toast.makeText(this, "폴더를 고를 수 없는 휴대폰이에요.", Toast.LENGTH_LONG).show() }
     }
 
     private fun search() {
@@ -208,17 +225,36 @@ class AskActivity : Activity(), TextToSpeech.OnInitListener {
         status.text = "대화에서 찾는 중… 잠시만요"
         status.visibility = View.VISIBLE
         answer.visibility = View.GONE
+        photoBox.visibility = View.GONE
         Bg.run({ claude.answer(q, chat, room) }) { r ->
             if (isFinishing) return@run
             status.visibility = View.GONE
             val text = r.map { ChatSearch.splitAnswer(it).first }
                 .getOrElse { (it as? HelperException)?.message ?: "문제가 생겼어요: ${it.message}" }
+            showPhotos(room, r.getOrNull())
             answer.text = text
             answer.visibility = View.VISIBLE
             body.findViewWithTag<Button>("replay")?.visibility = View.VISIBLE
             if (r.isSuccess) speak(text)
             (body.parent as? ScrollView)?.post { (body.parent as ScrollView).smoothScrollTo(0, answer.top) }
         }
+    }
+
+    /** 답에 사진 시각이 있으면 함께 저장된 사진 중 그 무렵 것을 보여 줌 */
+    private fun showPhotos(room: String?, full: String?) {
+        photoBox.removeAllViews()
+        val at = full?.let { kr.yunho.talkhelper.core.PhotoFind.photoTime(it) } ?: return
+        val files = ChatStore.photosAt(this, room, at)
+        if (files.isNotEmpty()) {
+            photoBox.add(Ui.text(this, "📷 그 무렵 올라온 사진 (누르면 크게)", 16f, bold = true), 0)
+            photoBox.add(PhotoStrip.view(this, files), 6)
+        } else {
+            photoBox.add(Ui.text(this,
+                if (ChatStore.hasPhotos(this, room)) "그 시각의 사진 파일은 찾지 못했어요. 카톡에서 그 날짜 대화를 직접 확인해 주세요."
+                else "사진 파일은 저장돼 있지 않아요. '📁 사진까지 가져오기'로 사진도 함께 저장하면 바로 보여 드려요.",
+                15f, color = Ui.MUTED), 0)
+        }
+        photoBox.visibility = View.VISIBLE
     }
 
     private fun speak(text: String) {

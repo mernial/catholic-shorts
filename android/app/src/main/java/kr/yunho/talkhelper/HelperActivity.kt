@@ -39,6 +39,8 @@ class HelperActivity : Activity() {
     companion object {
         /** 버튼을 누른 순간 카톡 화면에 보이던 글 (대화 맥락) */
         @Volatile var pendingScreenText: String? = null
+        /** true 면 '대화에서 찾기'로 바로 듣기 시작 (도우미 버튼을 꾹 눌러 🔎 고른 경우) */
+        const val EXTRA_ASK = "ask"
         private const val REQ_MIC = 7
         private const val COUNTDOWN = 3
         private const val MAX_RETRY = 4
@@ -95,6 +97,7 @@ class HelperActivity : Activity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        setIntent(intent)
         stopRecognizer()
         start()
     }
@@ -103,10 +106,16 @@ class HelperActivity : Activity() {
         screenText = pendingScreenText
         pendingScreenText = null
         heard.clear(); partial = ""; lastSpoken = ""
+        mode = prefs.mode   // 동그라미 메뉴에서 고른 말투
+        val ask = intent?.getBooleanExtra(EXTRA_ASK, false) == true
         build()
         // 버튼을 누르자마자 바로 듣기 시작
         if (prefs.apiKey.isBlank()) showStatus("⚠️ 아직 준비가 안 됐어요. '${getString(R.string.app_name)}' 앱을 열어 설정을 마쳐 주세요.", Ui.RED)
-        else toggleMic() // 마이크 권한이 없으면 여기서 허용을 물음
+        else {
+            askMode = ask
+            toggleMic() // 마이크 권한이 없으면 여기서 허용을 물음
+            if (ask && listening) heardView.text = "🔎 무엇을 찾을까요? 말씀하세요 (예: 연습이 언제였지?)"
+        }
     }
 
     private fun hasMic() = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
@@ -163,7 +172,8 @@ class HelperActivity : Activity() {
 
         // 손잡이 + 닫기
         val head = Ui.hbox(ctx)
-        val handle = Ui.text(ctx, "⠿  답장 도우미  (끌어서 옮기기)", 14f, bold = true, color = Ui.MUTED).apply {
+        // 지금 말투와 보내는 방식만 작게 (바꾸려면 도우미 버튼을 꾹 눌러 고름)
+        val handle = Ui.text(ctx, "⠿  ${mode.emoji} ${mode.label} · ${prefs.sendMode.label}", 14f, bold = true, color = Ui.MUTED).apply {
             setPadding(0, Ui.dp(ctx, 8), 0, Ui.dp(ctx, 8))
         }
         head.add(handle, weight = 4f)
@@ -176,6 +186,7 @@ class HelperActivity : Activity() {
         Mode.values().toList().chunked(2).forEachIndexed { i, pair ->
             val modeRow = Ui.hbox(ctx)
             for (m in pair) buttons[m] = modeRow.add(small("${m.emoji} ${m.label}", sp = 14f) { selectMode(m) }) as Button
+            modeRow.visibility = View.GONE   // 카드는 간단히: 말투는 버튼을 꾹 눌러 고름
             card.add(modeRow, if (i == 0) 6 else 4)
         }
         modeButtons = buttons
@@ -187,6 +198,7 @@ class HelperActivity : Activity() {
         val sendButtons = LinkedHashMap<SendMode, Button>()
         for (m in SendMode.values()) sendButtons[m] = sendModeRow.add(small(m.label, sp = 14f) { selectSendMode(m) }) as Button
         sendModeButtons = sendButtons
+        sendModeRow.visibility = View.GONE   // 보내는 방식은 꾹 눌러 ⚙️ 설정에서
         card.add(sendModeRow, 6)
         paintSendModes()
 
@@ -194,18 +206,19 @@ class HelperActivity : Activity() {
         val talkRow = Ui.hbox(ctx)
         micButton = small("", Ui.BROWN, Ui.YELLOW, sp = 16f) { if (!listening) askMode = false; toggleMic() }
         talkRow.add(micButton, weight = 2f)
+        // ⌨️·🔎 는 숨김 (찾기는 버튼을 꾹 눌러 🔎)
         talkRow.add(small("⌨️", sp = 15f) {
             stopRecognizer(); resetMic()
             typedRow.visibility = View.VISIBLE
             typedInput.requestFocus()
-        }, weight = 0.7f)
+        }, weight = 0.7f).visibility = View.GONE
         // 지금 카톡 화면에 보이는 대화에서 묻기
         talkRow.add(small("🔎", sp = 15f) {
             stopRecognizer(); resetMic()
             askMode = true
             toggleMic()
             if (listening) heardView.text = "무엇을 찾을까요? 말씀하세요 (예: 연습이 언제였지?)"
-        }, weight = 0.7f)
+        }, weight = 0.7f).visibility = View.GONE
         card.add(talkRow, 8)
         resetMic()
         heardView = Ui.text(ctx, "끝에 \"보내 줘\"라고 하면 바로 보냅니다", 15f, color = Ui.MUTED).apply { maxLines = 3 }
@@ -231,7 +244,7 @@ class HelperActivity : Activity() {
             textSize = 18f * prefs.textScale
             maxLines = 4
             // 고치려고 누르면 자동 전송을 멈춤
-            setOnTouchListener { _, e -> if (e.action == MotionEvent.ACTION_DOWN) stopCountdown(); false }
+            setOnTouchListener { _, e -> if (e.action == MotionEvent.ACTION_DOWN) { stopConfirm(); stopCountdown() }; false }
         }
         resultBox.add(resultEdit, 4)
         val sendRow = Ui.hbox(ctx)
@@ -241,7 +254,7 @@ class HelperActivity : Activity() {
         sendRow.add(sendButton, weight = 1.4f)
         resultBox.add(sendRow, 8)
         againRow = Ui.hbox(ctx)
-        againRow.add(small("🎤 다시 말하기", sp = 14f) { stopCountdown(); resultBox.visibility = View.GONE; toggleMic() })
+        againRow.add(small("🎤 다시 말하기", sp = 14f) { stopConfirm(); stopCountdown(); resultBox.visibility = View.GONE; toggleMic() })
         againRow.add(small("🔄 다시 다듬기", sp = 14f) { stopCountdown(); if (lastSpoken.isNotBlank()) rewrite(lastSpoken) })
         resultBox.add(againRow, 6)
         card.add(resultBox, 8)
@@ -250,6 +263,8 @@ class HelperActivity : Activity() {
         answerBox = Ui.vbox(ctx, 10, Ui.THEM).apply { visibility = View.GONE }
         answerText = Ui.text(ctx, "", 18f).apply { setTextIsSelectable(true) }
         answerBox.add(answerText, 0)
+        answerPhotos = Ui.vbox(ctx).apply { visibility = View.GONE }
+        answerBox.add(answerPhotos, 8)
         val answerRow = Ui.hbox(ctx)
         answerRow.add(small("📍 대화에서 보기", Ui.BROWN, Ui.YELLOW, sp = 15f) { goToMessage() }, weight = 1.4f)
         answerRow.add(small("🔊 듣기", sp = 15f) { speak(answerText.text.toString()) })
@@ -293,7 +308,7 @@ class HelperActivity : Activity() {
         paintSendModes()
         Toast.makeText(this, m.desc, Toast.LENGTH_SHORT).show()
         // 3초 카운트다운 중에 '확인 후'로 바꾸면 멈춤
-        if (m == SendMode.CONFIRM) stopCountdown()
+        if (m == SendMode.CONFIRM || m == SendMode.VOICE) stopCountdown()
     }
 
     private fun paintSendModes() = sendModeButtons.forEach { (m, b) ->
@@ -361,7 +376,7 @@ class HelperActivity : Activity() {
         heardView.visibility = View.VISIBLE
         showStatus(null)
 
-        val rec = SilenceRecorder()
+        val rec = SilenceRecorder(nearOnly = prefs.nearVoiceOnly)
         whisperRec = rec
         rec.start(onTick = { secs, speaking ->
             if (listening && whisperRec === rec) heardView.text = if (speaking) "🎙️ 듣는 중… ${secs}초" else "듣고 있어요…"
@@ -369,7 +384,11 @@ class HelperActivity : Activity() {
             if (whisperRec !== rec || isFinishing) return@start
             whisperRec = null
             listening = false
-            if (samples == null) { resetMic(); heardView.text = "말씀을 듣지 못했어요. 다시 눌러 주세요."; return@start }
+            if (samples == null) {
+                resetMic()
+                heardView.text = if (prefs.nearVoiceOnly) "말씀을 듣지 못했어요. 휴대폰을 입 가까이 대고 다시 눌러 주세요." else "말씀을 듣지 못했어요. 다시 눌러 주세요."
+                return@start
+            }
             micButton.text = "✍️ 받아쓰는 중…"
             micButton.isEnabled = false
             heardView.text = "받아쓰는 중… 몇 초 걸려요"
@@ -514,6 +533,7 @@ class HelperActivity : Activity() {
     private var askMode = false
     private lateinit var answerBox: LinearLayout
     private lateinit var answerText: TextView
+    private lateinit var answerPhotos: LinearLayout
     private var answerKeyword: String? = null
     private var tts: android.speech.tts.TextToSpeech? = null
 
@@ -542,6 +562,15 @@ class HelperActivity : Activity() {
                 showStatus(null)
                 answerKeyword = word
                 answerText.text = text
+                // 사진을 찾은 경우: 함께 저장해 둔 사진 중 그 무렵 것을 보여 줌 (사진은 휴대폰 밖으로 안 나감)
+                answerPhotos.removeAllViews()
+                val at = kr.yunho.talkhelper.core.PhotoFind.photoTime(full)
+                val photos = at?.let { ChatStore.photosAt(this, room, it) }.orEmpty()
+                if (photos.isNotEmpty()) answerPhotos.add(PhotoStrip.view(this, photos), 0)
+                else if (at != null) answerPhotos.add(Ui.text(this,
+                    if (room == null) "사진은 '대화에서 찾기'로 대화를 사진까지 저장해 두면 보여 드려요." else "그 무렵 사진 파일은 저장돼 있지 않아요. 📍로 그 위치에 가서 보세요.",
+                    14f, color = Ui.MUTED), 0)
+                answerPhotos.visibility = if (answerPhotos.childCount > 0) View.VISIBLE else View.GONE
                 answerBox.visibility = View.VISIBLE
                 speak(text)
             }.onFailure { showStatus((it as? HelperException)?.message ?: "문제가 생겼어요: ${it.message}", Ui.RED) }
@@ -567,16 +596,88 @@ class HelperActivity : Activity() {
         })
     }
 
-    private fun speak(text: String) {
-        if (text.isBlank()) return
+    /** 읽어 주기. [then] 은 다 읽은 뒤 (읽지 못하면 바로) 실행 */
+    private fun speak(text: String, then: (() -> Unit)? = null) {
+        if (text.isBlank()) { then?.invoke(); return }
+        fun say(t: android.speech.tts.TextToSpeech) {
+            t.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
+                override fun onStart(id: String?) {}
+                override fun onDone(id: String?) { if (id == "say") Bg.main.post { then?.invoke() } }
+                @Deprecated("old") override fun onError(id: String?) { Bg.main.post { then?.invoke() } }
+            })
+            if (t.speak(text.take(3900), android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "say") != android.speech.tts.TextToSpeech.SUCCESS) then?.invoke()
+        }
         val t = tts ?: android.speech.tts.TextToSpeech(applicationContext) { st ->
-            if (st == android.speech.tts.TextToSpeech.SUCCESS) {
-                tts?.language = java.util.Locale.KOREAN
-                tts?.setSpeechRate(0.9f)
-                tts?.speak(text.take(3900), android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "ans")
-            }
+            val ready = tts
+            if (st == android.speech.tts.TextToSpeech.SUCCESS && ready != null) {
+                ready.language = java.util.Locale.KOREAN
+                ready.setSpeechRate(0.9f)
+                say(ready)
+            } else then?.invoke()
         }.also { tts = it; return }
-        t.speak(text.take(3900), android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "ans")
+        say(t)
+    }
+
+    // ───────── 듣고 확인 (읽어 드리고 말로 대답) ─────────
+
+    private var confirmRec: SpeechRecognizer? = null
+    /** 읽는 도중 직접 고치거나 버튼을 누르면 이어서 듣지 않도록 */
+    private var confirmId = 0
+
+    private fun readAndConfirm(text: String) {
+        stopCountdown()
+        resultTitle.text = "🔊 읽어 드릴게요. 듣고 \"보내\" 또는 \"다시\"라고 말씀하세요"
+        val id = ++confirmId
+        speak("이렇게 보낼까요? $text") {
+            if (id == confirmId && !isFinishing && resultBox.visibility == View.VISIBLE) listenConfirm(0)
+        }
+    }
+
+    private fun listenConfirm(attempt: Int) {
+        if (!hasMic() || !SpeechRecognizer.isRecognitionAvailable(this)) return
+        stopConfirm()
+        resultTitle.text = "🎤 듣고 있어요…  \"보내\" · \"다시\" · \"취소\""
+        val rec = SpeechRecognizer.createSpeechRecognizer(this)
+        confirmRec = rec
+        rec.setRecognitionListener(object : android.speech.RecognitionListener {
+            override fun onReadyForSpeech(p: Bundle?) {}
+            override fun onBeginningOfSpeech() {}
+            override fun onRmsChanged(v: Float) {}
+            override fun onBufferReceived(b: ByteArray?) {}
+            override fun onEndOfSpeech() {}
+            override fun onPartialResults(b: Bundle?) {}
+            override fun onEvent(t: Int, b: Bundle?) {}
+            override fun onError(error: Int) {
+                if (confirmRec !== rec) return
+                stopConfirm()
+                if (attempt < 1) listenConfirm(attempt + 1)
+                else resultTitle.text = "말씀을 듣지 못했어요. 아래 버튼으로 골라 주세요"
+            }
+            override fun onResults(b: Bundle?) {
+                if (confirmRec !== rec) return
+                stopConfirm()
+                val said = b?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
+                when (kr.yunho.talkhelper.core.VoiceAnswer.of(said)) {
+                    kr.yunho.talkhelper.core.VoiceAnswer.SEND -> send()
+                    kr.yunho.talkhelper.core.VoiceAnswer.AGAIN -> { resultBox.visibility = View.GONE; askMode = false; toggleMic() }
+                    kr.yunho.talkhelper.core.VoiceAnswer.CANCEL -> { stopCountdown(); resultTitle.text = "보내지 않았어요. 눌러서 고치거나 버튼을 골라 주세요" }
+                    kr.yunho.talkhelper.core.VoiceAnswer.UNKNOWN ->
+                        if (attempt < 1) listenConfirm(attempt + 1)
+                        else resultTitle.text = "\"$said\" — 잘 모르겠어요. 아래 버튼으로 골라 주세요"
+                }
+            }
+        })
+        rec.startListening(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+            .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            .putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ko-KR")
+            .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1))
+    }
+
+    private fun stopConfirm() {
+        confirmId++
+        tts?.stop()
+        confirmRec?.let { runCatching { it.cancel(); it.destroy() } }
+        confirmRec = null
     }
 
     private fun rewrite(spoken: String) {
@@ -599,6 +700,7 @@ class HelperActivity : Activity() {
                     SendMode.INSTANT -> send()
                     SendMode.COUNTDOWN -> startCountdown()
                     SendMode.CONFIRM -> stopCountdown()
+                    SendMode.VOICE -> readAndConfirm(text)
                 }
                 resultBox.post { (resultBox.parent?.parent as? ScrollView)?.smoothScrollTo(0, resultBox.bottom) }
             }.onFailure { showStatus((it as? HelperException)?.message ?: "문제가 생겼어요: ${it.message}", Ui.RED) }
@@ -628,6 +730,7 @@ class HelperActivity : Activity() {
 
     private fun send() {
         Bg.main.removeCallbacks(tick)
+        stopConfirm()
         val text = resultEdit.text.toString().trim()
         if (text.isEmpty()) return
         val app = applicationContext
@@ -654,6 +757,7 @@ class HelperActivity : Activity() {
 
     override fun onDestroy() {
         Bg.main.removeCallbacks(tick)
+        stopConfirm()
         tts?.shutdown(); tts = null
         whisperRec?.stop()
         whisperRec = null

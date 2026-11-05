@@ -8,6 +8,7 @@ enum class SendMode(val label: String, val desc: String) {
     INSTANT("바로", "다듬자마자 바로 보냅니다"),
     COUNTDOWN("3초 뒤", "3초 동안 보여 주고 보냅니다 (그 사이 취소 가능)"),
     CONFIRM("확인 후", "다듬은 문장을 보고 '보내기'를 눌러야 보냅니다"),
+    VOICE("듣고 확인", "다듬은 문장을 읽어 드리고, \"보내\"라고 하시면 보냅니다 (\"다시\"·\"취소\"도 돼요)"),
 }
 
 class Prefs(ctx: Context) {
@@ -38,6 +39,11 @@ class Prefs(ctx: Context) {
     var carefulRewrite: Boolean
         get() = sp.getBoolean("carefulRewrite", false)
         set(v) = sp.edit().putBoolean("carefulRewrite", v).apply()
+
+    /** 고급 받아쓰기에서 휴대폰 가까이의 목소리만 받아쓰기 (TV·옆 사람 소리는 지움) */
+    var nearVoiceOnly: Boolean
+        get() = sp.getBoolean("nearVoiceOnly", true)
+        set(v) = sp.edit().putBoolean("nearVoiceOnly", v).apply()
 
     /** 고급 받아쓰기(Whisper, 휴대폰 안에서) 사용 */
     var whisperOn: Boolean

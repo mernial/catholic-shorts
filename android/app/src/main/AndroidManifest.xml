@@ -2,6 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- 고급 받아쓰기 파일을 와이파이에서 받는지 확인 -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -36,6 +37,14 @@
             android:exported="false"
             android:excludeFromRecents="true"
             android:launchMode="singleTask"
+            android:taskAffinity="kr.yunho.talkhelper.helper"
+            android:theme="@style/Helper" />
+
+        <!-- 카톡 위 간단 설정 (도우미 버튼을 꾹 눌러 ⚙️) -->
+        <activity
+            android:name=".QuickSettingsActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
             android:taskAffinity="kr.yunho.talkhelper.helper"
             android:theme="@style/Helper" />
 

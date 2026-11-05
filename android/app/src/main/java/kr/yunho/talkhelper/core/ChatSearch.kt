@@ -63,9 +63,10 @@ object ChatSearch {
 
     /** AI 답에서 마지막 '찾을말:' 줄을 떼어 냄 → (보여 줄 답, 카톡 검색에 쓸 낱말) */
     fun splitAnswer(text: String): Pair<String, String?> {
-        val m = Regex("""\n?\s*찾을말\s*[:：]\s*(.+?)\s*$""").find(text.trim()) ?: return text.trim() to null
+        val clean = PhotoFind.strip(text)   // '사진시각:' 줄도 함께 뺌
+        val m = Regex("""\n?\s*찾을말\s*[:：]\s*(.+?)\s*$""").find(clean) ?: return clean to null
         val word = m.groupValues[1].trim().trim('"', '\'', '“', '”', '‘', '’').takeIf { it.isNotBlank() }
-        return text.trim().removeRange(m.range).trim() to word
+        return clean.removeRange(m.range).trim() to word
     }
 
     /** 내보낸 카톡 파일 첫머리에서 대화방 이름 찾기 */

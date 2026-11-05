@@ -641,6 +641,7 @@ class HelperActivity : Activity() {
     private fun goToMessage() {
         val word = answerKeyword
         val app = applicationContext
+        val answerTextCopy = answerText.text.toString()
         tts?.stop()
         finish()
         val svc = KakaoAccessibilityService.instance
@@ -650,7 +651,9 @@ class HelperActivity : Activity() {
         }
         // 대화방을 위로 넘기며 그 메시지가 보일 때까지 찾아가서 멈춤 (카톡 검색창에 기대지 않음)
         Bg.main.postDelayed({
-            svc.scrollToText(word) { found ->
+            // 근거로 나온 원래 문장 앞부분으로 먼저, 없으면 찾을말로
+            val quote = Regex("근거:.*?['‘\"“]([^'’\"”]{4,})['’\"”]").find(answerTextCopy)?.groupValues?.get(1)?.trim()?.take(16)
+            svc.scrollToText(listOfNotNull(quote, word)) { found ->
                 if (found) Toast.makeText(app, "찾은 메시지예요", Toast.LENGTH_SHORT).show()
                 else {
                     (app.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("찾을말", word))

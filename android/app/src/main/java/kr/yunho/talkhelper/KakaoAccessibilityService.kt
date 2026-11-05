@@ -308,7 +308,7 @@ class KakaoAccessibilityService : AccessibilityService() {
      * 대화방을 위로 넘기며 [word] 가 들어 있는 메시지가 화면에 보이면 멈춤 (가장 최근 것부터).
      * 넘기는 동안은 덮개로 가림. 찾으면 그 메시지가 보이는 상태로 [done](true)
      */
-    fun scrollToText(word: String, maxPages: Int = 120, done: (Boolean) -> Unit) {
+    fun scrollToText(words: List<String>, maxPages: Int = 120, done: (Boolean) -> Unit) {
         if (!startWork()) { done(false); return }
         showCover("메시지로 이동하는 중이에요…", "그만")
         var pages = 0
@@ -319,7 +319,8 @@ class KakaoAccessibilityService : AccessibilityService() {
             val root = kakaoRoot()
             val list = chatList(root)
             if (root == null || list == null) { end(false); return }
-            val hit = walk(list) { n -> n.isVisibleToUser && n.text?.toString()?.contains(word) == true }
+            // 앞의 것(원래 문장)이 더 정확하므로 먼저 찾음
+            val hit = words.firstNotNullOfOrNull { w -> walk(list) { n -> n.isVisibleToUser && n.text?.toString()?.contains(w) == true } }
             if (hit != null) {
                 hit.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.id)
                 handler.postDelayed({ end(true) }, 300)

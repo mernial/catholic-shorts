@@ -37,6 +37,8 @@ class Claude(apiKey: String, baseUrl: String? = null) {
     fun rewrite(mode: Mode, spoken: String, screenText: String?, myName: String, myRole: String, careful: Boolean = false): String =
         ask(Prompts.system(mode), Prompts.user(mode, spoken, screenText, myName, myRole), if (careful) CAREFUL_MODEL else FAST_MODEL)
             .trim().removeSurrounding("\"").trim()
+            // 사용자가 말하지 않은 호칭(예: 내 신분인 '신부님')으로 상대를 부르면 바로잡음
+            .let { TitleGuard.fix(it, spoken) }
 
     /** 카톡 대화에서 [question] 에 대한 답 찾기. [chat] 이 길면 관련 부분만 골라 보냄 */
     fun answer(question: String, chat: String, room: String?): String =

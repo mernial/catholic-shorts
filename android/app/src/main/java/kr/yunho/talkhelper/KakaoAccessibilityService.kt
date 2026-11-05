@@ -11,17 +11,21 @@ import android.os.Handler
 import android.os.Looper
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
+import android.widget.FrameLayout
 import android.widget.TextView
+import kr.yunho.talkhelper.core.Mode
 
 /**
  * 1) 카카오톡이 화면에 있을 때만 '도우미' 버튼을 띄움
  * 2) 버튼을 누르면 카톡 화면에 보이는 글(대화 맥락)을 모아 도우미 화면(HelperActivity)을 엶
+ *    꾹 누르면 버튼 둘레에 말투·찾기 동그라미 메뉴가 펼쳐짐
  * 3) 정중하게 다듬은 답장을 카톡 입력창에 넣고 전송 버튼을 누름
  * 카카오톡 이외의 앱 화면은 읽지 않음.
  */
@@ -34,6 +38,8 @@ class KakaoAccessibilityService : AccessibilityService() {
         private val SEND_IDS = listOf("send", "send_button", "send_btn", "btn_send", "sendButton", "send_button_layout", "chatroom_send").map { "$KAKAO:id/$it" }
         /** 입력창 옆에 있지만 전송이 아닌 버튼 */
         private val NOT_SEND = listOf("이모티콘", "샵", "검색", "#", "더보기", "메뉴", "첨부", "음성", "Emoticon", "Search", "More")
+        /** 이만큼 꾹 누르면 동그라미 메뉴 */
+        private const val LONG_PRESS_MS = 450L
         private val SEND_WORDS = listOf("전송", "보내기", "메시지 전송", "Send")
     }
 
@@ -309,12 +315,28 @@ class KakaoAccessibilityService : AccessibilityService() {
         }
 
         var downX = 0f; var downY = 0f; var startX = 0; var startY = 0; var dragged = false
+        var longPressed = false
+        val slop = Ui.dp(this, 10)
+        val longPress = Runnable {
+            if (!dragged) {
+                longPressed = true
+                v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                showMenu()
+            }
+        }
         v.setOnTouchListener { _, e ->
             when (e.action) {
-                MotionEvent.ACTION_DOWN -> { downX = e.rawX; downY = e.rawY; startX = lp.x; startY = lp.y; dragged = false; true }
+                MotionEvent.ACTION_DOWN -> {
+                    downX = e.rawX; downY = e.rawY; startX = lp.x; startY = lp.y; dragged = false; longPressed = false
+                    handler.postDelayed(longPress, LONG_PRESS_MS)
+                    true
+                }
                 MotionEvent.ACTION_MOVE -> {
                     val dx = e.rawX - downX; val dy = e.rawY - downY
-                    if (dragged || Math.abs(dx) > 15 || Math.abs(dy) > 15) {
+                    // 메뉴가 펼쳐진 뒤에는 손가락이 지나는 동그라미를 표시 (떼면 그것을 고름)
+                    if (longPressed) { hoverMenu(e.rawX, e.rawY); return@setOnTouchListener true }
+                    if (dragged || Math.abs(dx) > slop || Math.abs(dy) > slop) {
+                        if (!dragged) handler.removeCallbacks(longPress)
                         dragged = true
                         lp.x = (startX + dx).toInt().coerceIn(0, sw - size)
                         lp.y = (startY + dy).toInt().coerceIn(0, sh - size)
@@ -323,9 +345,15 @@ class KakaoAccessibilityService : AccessibilityService() {
                     true
                 }
                 MotionEvent.ACTION_UP -> {
-                    if (dragged) { prefs.bubbleX = lp.x; prefs.bubbleY = lp.y } else openHelper()
+                    handler.removeCallbacks(longPress)
+                    when {
+                        longPressed -> releaseMenu(e.rawX, e.rawY)
+                        dragged -> { prefs.bubbleX = lp.x; prefs.bubbleY = lp.y }
+                        else -> openHelper()
+                    }
                     true
                 }
+                MotionEvent.ACTION_CANCEL -> { handler.removeCallbacks(longPress); true }
                 else -> false
             }
         }
@@ -348,14 +376,119 @@ class KakaoAccessibilityService : AccessibilityService() {
     }
 
     private fun removeBubble() {
+        closeMenu()
         bubble?.let { runCatching { wm.removeView(it) } }
         bubble = null
     }
 
-    private fun openHelper() {
+    /** 도우미 카드 열기. [ask] 면 말투 다듬기 대신 '대화에서 찾기'로 바로 듣기 시작 */
+    private fun openHelper(ask: Boolean = false) {
+        closeMenu()
         HelperActivity.pendingScreenText = screenTexts().joinToString("\n")
         val intent = Intent(this, HelperActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            .putExtra(HelperActivity.EXTRA_ASK, ask)
         startActivity(intent)
+    }
+
+    // ───────── 꾹 누르면 버튼 둘레에 펼쳐지는 동그라미 메뉴 ─────────
+
+    private var menu: FrameLayout? = null
+    private var menuItems: List<Pair<View, () -> Unit>> = emptyList()
+    private var menuHot: View? = null
+
+    private fun oval(fill: Int, stroke: Int) = android.graphics.drawable.GradientDrawable().apply {
+        shape = android.graphics.drawable.GradientDrawable.OVAL
+        setColor(fill)
+        setStroke(Ui.dp(this@KakaoAccessibilityService, 3), stroke)
+    }
+
+    private fun showMenu() {
+        val b = bubble ?: return
+        closeMenu()
+        val prefs = Prefs(this)
+        val root = FrameLayout(this).apply {
+            setBackgroundColor(0x55000000)
+            setOnClickListener { closeMenu() }   // 빈 곳을 누르면 닫힘
+        }
+        val lp = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT,
+        ).apply { gravity = Gravity.TOP or Gravity.START }
+
+        // 말투 4가지 + 찾기. 지금 고른 말투는 노란색
+        val entries: List<Triple<String, Boolean, () -> Unit>> =
+            Mode.values().map { m -> Triple("${m.emoji}\n${m.label}", m == prefs.mode) { prefs.mode = m; openHelper() } } +
+                Triple("🔎\n찾기", false) { openHelper(ask = true) }
+        val size = Ui.dp(this, 78)
+        val items = entries.map { (label, on, act) ->
+            val item = TextView(this).apply {
+                text = label
+                gravity = Gravity.CENTER
+                setTextColor(Ui.BROWN)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                background = if (label.startsWith("🔎")) oval(Ui.BROWN, Ui.BROWN).also { setTextColor(Ui.YELLOW) }
+                    else oval(if (on) Ui.YELLOW else 0xFFFFFFFF.toInt(), Ui.BROWN)
+                elevation = Ui.dp(this@KakaoAccessibilityService, 8).toFloat()
+                contentDescription = label.replace("\n", " ")
+                alpha = 0f; scaleX = 0.3f; scaleY = 0.3f
+                setOnClickListener { act() }
+            }
+            root.addView(item, FrameLayout.LayoutParams(size, size))
+            item to act
+        }
+        runCatching { wm.addView(root, lp); menu = root; menuItems = items }
+            .onFailure { diag("메뉴 그리기 실패: ${it.javaClass.simpleName} ${it.message}"); return }
+
+        // 버튼 자리에서 화면 가운데 쪽으로 부채꼴로 하나씩 펼침
+        root.post {
+            val o = IntArray(2).also { root.getLocationOnScreen(it) }
+            val bl = IntArray(2).also { b.getLocationOnScreen(it) }
+            val cx = bl[0] + b.width / 2f - o[0]
+            val cy = bl[1] + b.height / 2f - o[1]
+            val w = root.width; val h = root.height
+            val toward = Math.atan2((h / 2f - cy).toDouble(), (w / 2f - cx).toDouble())
+            val spread = Math.toRadians(160.0)
+            val r = Ui.dp(this, 132)
+            items.forEachIndexed { i, (v, _) ->
+                val a = toward - spread / 2 + spread * i / (items.size - 1)
+                val x = (cx + r * Math.cos(a) - size / 2f).coerceIn(0f, (w - size).toFloat())
+                val y = (cy + r * Math.sin(a) - size / 2f).coerceIn(0f, (h - size).toFloat())
+                v.translationX = cx - size / 2f; v.translationY = cy - size / 2f
+                v.animate().translationX(x).translationY(y).alpha(1f).scaleX(1f).scaleY(1f)
+                    .setStartDelay(i * 50L).setDuration(220).start()
+            }
+        }
+    }
+
+    private fun itemAt(rawX: Float, rawY: Float): Pair<View, () -> Unit>? = menuItems.firstOrNull { (v, _) ->
+        val l = IntArray(2).also { v.getLocationOnScreen(it) }
+        rawX >= l[0] && rawX <= l[0] + v.width && rawY >= l[1] && rawY <= l[1] + v.height
+    }
+
+    /** 꾹 누른 채로 손가락을 옮기면 지나는 동그라미를 크게 */
+    private fun hoverMenu(rawX: Float, rawY: Float) {
+        val hot = itemAt(rawX, rawY)?.first
+        if (hot === menuHot) return
+        menuHot?.animate()?.scaleX(1f)?.scaleY(1f)?.setStartDelay(0)?.setDuration(100)?.start()
+        hot?.animate()?.scaleX(1.18f)?.scaleY(1.18f)?.setStartDelay(0)?.setDuration(100)?.start()
+        hot?.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+        menuHot = hot
+    }
+
+    /** 손을 뗀 곳이 동그라미 위면 그것을 고르고, 아니면 메뉴를 펼친 채로 두어 눌러 고르게 함 */
+    private fun releaseMenu(rawX: Float, rawY: Float) {
+        menuHot = null
+        itemAt(rawX, rawY)?.second?.invoke()
+    }
+
+    private fun closeMenu() {
+        menu?.let { runCatching { wm.removeView(it) } }
+        menu = null
+        menuItems = emptyList()
+        menuHot = null
     }
 }

@@ -252,7 +252,7 @@ class MainActivity : Activity() {
     private fun done() {
         val box = bigCard(
             "준비 끝! 🎉",
-            "카톡 대화방을 열면 노란 💬 버튼이 있어요.\n\n1. 💬 버튼을 누르고\n2. 하고 싶은 말을 편하게 한 뒤\n3. 끝에 \"보내 줘\"라고 말하세요.\n\n고른 말투로 바꿔서 보내 드려요.\n🙏 정중하게  😊 친구처럼\n💼 업무 연락  🤗 자녀에게"
+            "카톡 대화방을 열면 노란 💬 버튼이 있어요.\n\n1. 💬 버튼을 누르고\n2. 하고 싶은 말을 편하게 한 뒤\n3. 끝에 \"보내 줘\"라고 말하세요.\n\n고른 말투로 바꿔서 보내 드려요.\n\n💬 버튼을 꾹 누르면 말투와 🔎 찾기가 동그랗게 펼쳐져요.\n🙏 정중하게  😊 친구처럼\n💼 업무 연락  🤗 자녀에게"
         )
         box.add(Ui.button(this, "🎤  여기서 연습해 보기", Ui.CARD, sp = 20f) {
             startActivity(Intent(this, HelperActivity::class.java))

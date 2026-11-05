@@ -39,6 +39,8 @@ class HelperActivity : Activity() {
     companion object {
         /** 버튼을 누른 순간 카톡 화면에 보이던 글 (대화 맥락) */
         @Volatile var pendingScreenText: String? = null
+        /** true 면 '대화에서 찾기'로 바로 듣기 시작 (도우미 버튼을 꾹 눌러 🔎 고른 경우) */
+        const val EXTRA_ASK = "ask"
         private const val REQ_MIC = 7
         private const val COUNTDOWN = 3
         private const val MAX_RETRY = 4
@@ -95,6 +97,7 @@ class HelperActivity : Activity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        setIntent(intent)
         stopRecognizer()
         start()
     }
@@ -103,10 +106,16 @@ class HelperActivity : Activity() {
         screenText = pendingScreenText
         pendingScreenText = null
         heard.clear(); partial = ""; lastSpoken = ""
+        mode = prefs.mode   // 동그라미 메뉴에서 고른 말투
+        val ask = intent?.getBooleanExtra(EXTRA_ASK, false) == true
         build()
         // 버튼을 누르자마자 바로 듣기 시작
         if (prefs.apiKey.isBlank()) showStatus("⚠️ 아직 준비가 안 됐어요. '${getString(R.string.app_name)}' 앱을 열어 설정을 마쳐 주세요.", Ui.RED)
-        else toggleMic() // 마이크 권한이 없으면 여기서 허용을 물음
+        else {
+            askMode = ask
+            toggleMic() // 마이크 권한이 없으면 여기서 허용을 물음
+            if (ask && listening) heardView.text = "🔎 무엇을 찾을까요? 말씀하세요 (예: 연습이 언제였지?)"
+        }
     }
 
     private fun hasMic() = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED

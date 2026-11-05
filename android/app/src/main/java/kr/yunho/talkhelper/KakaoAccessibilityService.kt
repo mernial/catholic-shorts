@@ -162,11 +162,24 @@ class KakaoAccessibilityService : AccessibilityService() {
     }
 
     @Volatile private var collecting = false
+    @Volatile private var collectingSince = 0L
     @Volatile private var stopCollect = false
+
+    /** 앞 작업이 1분 넘게 안 끝났으면 멈춘 것으로 보고 새로 시작할 수 있게 함 */
+    private fun startWork(): Boolean {
+        val now = System.currentTimeMillis()
+        if (collecting && now - collectingSince < 60_000) return false
+        removeCover()
+        collecting = true
+        collectingSince = now
+        stopCollect = false
+        return true
+    }
 
     // 넘기는 동안 화면을 덮는 안내 (대화가 휙휙 넘어가는 모습을 보이지 않게)
     private var cover: android.widget.LinearLayout? = null
     private var coverText: TextView? = null
+    private var coverStop: TextView? = null
 
     private fun showCover(title: String = "예전 대화에서 찾고 있어요…", stopLabel: String = "그만 찾고 지금까지 본 데서 찾기") {
         if (cover != null) return
@@ -191,6 +204,7 @@ class KakaoAccessibilityService : AccessibilityService() {
         }
         box.addView(coverText)
         box.addView(TextView(this).apply {
+            coverStop = this
             text = stopLabel
             setTextColor(CHARCOAL_BOTTOM)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 17f)
@@ -212,6 +226,7 @@ class KakaoAccessibilityService : AccessibilityService() {
         cover?.let { runCatching { wm.removeView(it) } }
         cover = null
         coverText = null
+        coverStop = null
     }
 
     /**
@@ -220,9 +235,7 @@ class KakaoAccessibilityService : AccessibilityService() {
      * 모은 글은 휴대폰 안에 있고, 질문과 관련된 부분만 AI 에 보냄.
      */
     fun collectHistory(maxPages: Int = 40, maxMs: Long = 15_000, progress: (Int) -> Unit, done: (List<String>) -> Unit) {
-        if (collecting) return
-        collecting = true
-        stopCollect = false
+        if (!startWork()) { done(emptyList()); return }
         showCover()
         val start = System.currentTimeMillis()
         var acc: List<String> = emptyList()
@@ -304,28 +317,47 @@ class KakaoAccessibilityService : AccessibilityService() {
      * 카톡 화면 구성이 바뀌어 못 찾으면 [done](false, 막힌 단계)
      */
     fun exportChat(done: (Boolean, String) -> Unit) {
-        if (collecting) return
-        collecting = true
-        stopCollect = false
+        val log = Prefs(this)
+        if (!startWork()) { log.logExport("내보내기: 다른 작업 중이라 시작 못 함"); done(false, "시작"); return }
+        log.logExport("내보내기 시작")
         showCover("이 대화방의 대화를 내보내는 중이에요…\n내보낸 대화는 이 휴대폰 안에만 보관돼요", "그만두기")
         val appName = getString(R.string.app_name)
         fun end(ok: Boolean, step: String) {
             collecting = false
-            removeCover()
+            if (ok) {
+                log.logExport("내보내기: 공유 창에서 이 앱을 고름")
+                removeCover()
+            } else {
+                // 어디서 막혔는지 기록 (그때 화면에 보이던 버튼 이름들도)
+                val seen = allRoots().flatMap { r ->
+                    val l = ArrayList<String>()
+                    walk(r) { n -> if (n.isVisibleToUser && (n.isClickable || n.contentDescription != null)) label(n).takeIf { it.isNotEmpty() }?.let { l += it.take(20) }; l.size > 25 }
+                    l
+                }.distinct().take(25)
+                log.logExport("내보내기 막힘: $step · 보이던 것: ${seen.joinToString(", ")}")
+                // 덮개를 남겨 직접 할 순서를 크게 보여 줌 (닫기를 눌러야 사라짐)
+                coverText?.text = "$step 단계를 자동으로 못 눌렀어요.\n\n직접 이렇게 눌러 주세요:\n☰ → ⚙ 설정 → 대화 내용 내보내기\n→ 텍스트만 보내기 → '대화에서 찾기'\n\n물어보신 질문은 기억해 두었다가 이어서 찾아 드려요."
+                coverStop?.text = "닫고 직접 하기"
+                coverStop?.setOnClickListener { removeCover() }
+            }
             done(ok, step)
         }
         // 1) 오른쪽 위 ☰ 메뉴
-        tapWhenShown({ it == "메뉴" || it.contains("서랍") || it == "Menu" }, 8, false, iconOnly = true, then = { ok1 ->
+        tapWhenShown({ it.contains("메뉴") || it.contains("서랍") || it == "Menu" }, 8, false, iconOnly = true, then = { ok1 ->
             if (!ok1) return@tapWhenShown end(false, "오른쪽 위 ☰ 메뉴")
+                        log.logExport("1 메뉴 열림")
             // 2) 서랍 아래 ⚙ 설정
             tapWhenShown({ it == "설정" || it == "채팅방 설정" || it.contains("Settings") }, 8, false, iconOnly = true, then = { ok2 ->
                 if (!ok2) return@tapWhenShown end(false, "아래쪽 ⚙ 설정")
+                        log.logExport("2 설정 열림")
                 // 3) 대화 내용 내보내기
                 tapWhenShown({ it.contains("대화 내용 내보내기") || it.contains("Export") }, 10, true) { ok3 ->
                     if (!ok3) return@tapWhenShown end(false, "'대화 내용 내보내기'")
+                        log.logExport("3 내보내기 누름")
                     // 4) 텍스트만 보내기
                     tapWhenShown({ it.contains("텍스트") && it.contains("보내기") || it.contains("Send text") }, 8, false) { ok4 ->
                         if (!ok4) return@tapWhenShown end(false, "'텍스트만 보내기'")
+                        log.logExport("4 텍스트만 보내기 누름")
                         // 5) 공유 창에서 이 앱('대화에서 찾기') 고르기
                         tapWhenShown({ it == "대화에서 찾기" || it == appName || it.startsWith(appName) }, 12, true) { ok5 ->
                             end(ok5, if (ok5) "" else "공유 창에서 '대화에서 찾기'")

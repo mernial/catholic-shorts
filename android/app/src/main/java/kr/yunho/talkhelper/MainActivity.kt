@@ -379,6 +379,10 @@ class MainActivity : Activity() {
     }
 
     private fun sendLog() {
+        Prefs(this).exportLog.takeIf { it.isNotBlank() }?.let {
+            body.add(Ui.text(this, "대화 내보내기·찾기 기록 (안 될 때 이 화면을 캡처해 주세요)", 14f, bold = true, color = Ui.MUTED), 28)
+            body.add(Ui.text(this, it, 11f, color = Ui.MUTED).apply { setTextIsSelectable(true) }, 4)
+        }
         val log = Prefs(this).lastSendLog
         if (log.isBlank() || log == "성공") return
         body.add(Ui.text(this, "마지막 보내기 기록 (안 될 때 이 화면을 캡처해 주세요)", 14f, bold = true, color = Ui.MUTED), 28)

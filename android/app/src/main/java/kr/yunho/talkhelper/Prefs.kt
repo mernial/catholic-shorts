@@ -61,6 +61,15 @@ class Prefs(ctx: Context) {
         set(v) = sp.edit().putString("lastUsage", v).apply()
 
     /** 마지막 카톡 보내기 시도 기록 (문제 진단용) */
+    /** 대화 내보내기·찾기 과정 기록 (안 될 때 원인 확인용, 최근 30줄) */
+    var exportLog: String
+        get() = sp.getString("exportLog", "") ?: ""
+        set(v) = sp.edit().putString("exportLog", v).apply()
+    fun logExport(line: String) {
+        val t = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.KOREA).format(java.util.Date())
+        exportLog = (exportLog.lines().filter { it.isNotBlank() } + "$t $line").takeLast(30).joinToString("\n")
+    }
+
     var lastSendLog: String
         get() = sp.getString("lastSendLog", "") ?: ""
         set(v) = sp.edit().putString("lastSendLog", v).apply()

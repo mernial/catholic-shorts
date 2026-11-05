@@ -98,11 +98,15 @@ class AskActivity : Activity(), TextToSpeech.OnInitListener {
 
     private fun handle(i: Intent) {
         i.getStringExtra(EXTRA_SCREEN)?.takeIf { it.isNotBlank() }?.let { screenText = it; selected = SCREEN }
-        if (i.action == Intent.ACTION_SEND) {
+        if (i.action == Intent.ACTION_SEND || i.action == Intent.ACTION_SEND_MULTIPLE) {
             @Suppress("DEPRECATION")
-            val uri: Uri? = if (Build.VERSION.SDK_INT >= 33) i.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+            val uri: Uri? = if (i.action == Intent.ACTION_SEND_MULTIPLE) {
+                (if (Build.VERSION.SDK_INT >= 33) i.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                else i.getParcelableArrayListExtra(Intent.EXTRA_STREAM))?.firstOrNull()
+            } else if (Build.VERSION.SDK_INT >= 33) i.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
             else i.getParcelableExtra(Intent.EXTRA_STREAM)
             val text = i.getStringExtra(Intent.EXTRA_TEXT)
+            Prefs(this).logExport("받음: ${i.action?.substringAfterLast('.')} ${i.type} 파일=${uri != null} 글=${text?.length ?: 0}자 · 기다리는 질문=${pendingQuestion != null}")
             showBusy("💬 대화를 저장하는 중이에요…\n\n내보낸 대화는 이 휴대폰 안에만 보관돼요")
             importChat {
                 if (uri != null) ChatStore.importStream(this) { contentResolver.openInputStream(uri) }
@@ -120,9 +124,12 @@ class AskActivity : Activity(), TextToSpeech.OnInitListener {
             hideBusy()
             val saved = r.getOrNull()
             if (saved == null) {
-                Toast.makeText(this, "대화 파일을 읽지 못했어요. 카톡에서 다시 내보내 주세요.", Toast.LENGTH_LONG).show()
+                Prefs(this).logExport("저장 실패: ${r.exceptionOrNull()?.let { it.javaClass.simpleName + " " + it.message } ?: "대화 글이 비어 있음"}")
+                AlertDialog.Builder(this).setMessage("대화 파일을 읽지 못했어요.\n카톡에서 '대화 내용 내보내기' → '텍스트만 보내기'로 다시 보내 주세요.")
+                    .setPositiveButton("확인", null).show()
                 return@run
             }
+            Prefs(this).logExport("저장: '${saved.room}' 사진 ${saved.photos}장")
             selected = saved.room
             val photos = if (saved.photos > 0) " 사진 ${saved.photos}장도 함께 저장했어요." else ""
             Toast.makeText(this, "'${saved.room}' 대화를 저장했어요.$photos 이제 물어보세요.", Toast.LENGTH_LONG).show()
@@ -130,6 +137,7 @@ class AskActivity : Activity(), TextToSpeech.OnInitListener {
             // 카드에서 물어본 질문이 기다리고 있으면 바로 찾아서 정리해 드림 (5분 안)
             pendingQuestion?.takeIf { System.currentTimeMillis() - it.second < 5 * 60_000 }?.let { (q, _) ->
                 pendingQuestion = null
+                Prefs(this).logExport("기다리던 질문으로 찾기 시작")
                 question.setText(q)
                 search()
                 return@run
@@ -282,6 +290,7 @@ class AskActivity : Activity(), TextToSpeech.OnInitListener {
         Bg.run({ claude.answer(q, chat, room) }) { r ->
             if (isFinishing) return@run
             hideBusy()
+            Prefs(this).logExport(if (r.isSuccess) "찾기 완료" else "찾기 실패: ${r.exceptionOrNull()?.message}")
             val text = r.map { ChatSearch.splitAnswer(it).first }
                 .getOrElse { (it as? HelperException)?.message ?: "문제가 생겼어요: ${it.message}" }
             showPhotos(room, r.getOrNull())

@@ -519,14 +519,10 @@ class HelperActivity : Activity() {
     /** 카톡 메뉴를 대신 눌러 이 방 대화를 이 앱으로 내보내고, 저장되면 '대화에서 찾기'가 이어서 답함 */
     private fun exportThenAsk(question: String, svc: KakaoAccessibilityService) {
         AskActivity.pendingQuestion = question to System.currentTimeMillis()
-        val app = applicationContext
         finish()   // 카드를 닫아야 카톡 메뉴를 누를 수 있음
         Bg.main.postDelayed({
-            svc.exportChat { ok, step ->
-                if (!ok) Toast.makeText(app,
-                    "$step 단계를 자동으로 못 눌렀어요.\n카톡 ☰ → ⚙ → '대화 내용 내보내기' → '텍스트만 보내기' → '대화에서 찾기'를 직접 눌러 주세요.",
-                    Toast.LENGTH_LONG).show()
-            }
+            // 막히면 덮개에 직접 누를 순서가 크게 남음 (질문은 5분 동안 기억)
+            svc.exportChat { _, _ -> }
         }, 400)
     }
 

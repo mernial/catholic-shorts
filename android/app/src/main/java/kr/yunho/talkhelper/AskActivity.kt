@@ -319,7 +319,7 @@ class AskActivity : Activity(), TextToSpeech.OnInitListener {
             val text = r.map { ChatSearch.splitAnswer(it).first }
                 .getOrElse { (it as? HelperException)?.message ?: "문제가 생겼어요: ${it.message}" }
             showPhotos(room, r.getOrNull())
-            answer.text = text
+            answer.text = if (r.isSuccess) Ui.answer(text) else text
             answer.visibility = View.VISIBLE
             body.findViewWithTag<View>("replay")?.visibility = View.VISIBLE
             if (r.isSuccess && Prefs(this).readAnswers) speak(text)

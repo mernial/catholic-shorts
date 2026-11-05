@@ -621,7 +621,7 @@ class HelperActivity : Activity() {
                 val (text, word) = kr.yunho.talkhelper.core.ChatSearch.splitAnswer(full)
                 showStatus(null)
                 answerKeyword = word
-                answerText.text = if (room == null && text.contains("찾지 못")) "$text\n\n※ 더 예전 대화는 카톡 '대화 내용 내보내기'로 이 앱에 저장해 두면 처음부터 다 찾아 드려요." else text
+                answerText.text = Ui.answer(if (room == null && text.contains("찾지 못")) "$text\n\n※ 더 예전 대화는 카톡 '대화 내용 내보내기'로 이 앱에 저장해 두면 처음부터 다 찾아 드려요." else text)
                 // 사진을 찾은 경우: 함께 저장해 둔 사진 중 그 무렵 것을 보여 줌 (사진은 휴대폰 밖으로 안 나감)
                 answerPhotos.removeAllViews()
                 val at = kr.yunho.talkhelper.core.PhotoFind.photoTime(full)
@@ -653,7 +653,7 @@ class HelperActivity : Activity() {
         // 대화방을 위로 넘기며 그 메시지가 보일 때까지 찾아가서 멈춤 (카톡 검색창에 기대지 않음)
         Bg.main.postDelayed({
             // 근거로 나온 원래 문장 앞부분으로 먼저, 없으면 찾을말로
-            val quote = Regex("근거:.*?['‘\"“]([^'’\"”]{4,})['’\"”]").find(answerTextCopy)?.groupValues?.get(1)?.trim()?.take(16)
+            val quote = Regex("근거\\s*[:：]?[^'‘\"“]*['‘\"“]([^'’\"”]{4,})['’\"”]").find(answerTextCopy)?.groupValues?.get(1)?.trim()?.take(16)
             svc.scrollToText(listOfNotNull(quote, word)) { found ->
                 if (found) Toast.makeText(app, "찾은 메시지예요", Toast.LENGTH_SHORT).show()
                 else {

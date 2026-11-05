@@ -289,7 +289,7 @@ class KakaoAccessibilityService : AccessibilityService() {
         val apps = wins.mapNotNull { it.root?.packageName?.toString() }
         // 창 목록을 못 받는 기기에서는 마지막으로 앞에 나온 앱으로 판단
         val kakao = KAKAO in apps || (apps.isEmpty() && lastPkg == KAKAO)
-        val show = kakao && packageName !in apps
+        val show = kakao && packageName !in apps && Prefs(this).enabled
         if (show) showBubble() else removeBubble()
         diag("앱 창 ${wins.size}개 [${apps.joinToString().ifBlank { "없음" }}] · 최근 앱 ${lastPkg.ifBlank { "-" }} · 카톡 ${if (kakao) "인식" else "못 찾음"} · 버튼 ${if (bubble != null) "표시 중" else "숨김"}")
     }
@@ -472,7 +472,7 @@ class KakaoAccessibilityService : AccessibilityService() {
             val w = root.width; val h = root.height
             // 버튼이 오른쪽에 있으면 왼쪽으로, 왼쪽에 있으면 오른쪽으로 반원(위→아래)으로 펼침.
             // 버튼이 화면 위·아래 끝에 있어도 반원이 화면 안에 다 들어오게 중심을 옮김
-            val r = Ui.dp(this, 140)
+            val r = Ui.dp(this, if (items.size > 6) 162 else 140)   // 동그라미가 많으면 반원을 크게
             val toward = if (cx > w / 2f) Math.PI else 0.0
             val spread = Math.PI
             val half = r + size / 2f

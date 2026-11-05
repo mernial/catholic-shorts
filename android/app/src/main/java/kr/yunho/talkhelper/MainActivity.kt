@@ -107,7 +107,10 @@ class MainActivity : Activity() {
     private fun render() {
         val p = Prefs(this)
         body.removeAllViews()
-        body.add(Ui.text(this, getString(R.string.app_name), 30f, bold = true), 0)
+        // 제목을 길게 누르면 숨겨 둔 '자세한 설정' (API 키·이름·고급 받아쓰기·문제 확인)
+        body.add(Ui.text(this, getString(R.string.app_name), 30f, bold = true).apply {
+            setOnLongClickListener { showAdvanced = !showAdvanced; render(); true }
+        }, 0)
         updateBanner()
 
         val steps = listOf(accessibilityOn(), micOn(), p.apiKey.isNotBlank())
@@ -119,7 +122,6 @@ class MainActivity : Activity() {
                 1 -> stepMic()
                 2 -> stepSetupCode()
             }
-            body.add(Ui.button(this, "자세한 설정 보기", Ui.CARD, sp = 15f) { showAdvanced = true; render() }, 40)
             return
         }
         if (!showAdvanced) done() else advanced()
@@ -250,26 +252,67 @@ class MainActivity : Activity() {
     // ───────── 완료 ─────────
 
     private fun done() {
-        val box = bigCard(
-            "준비 끝! 🎉",
-            "카톡 대화방을 열면 노란 💬 버튼이 있어요.\n\n1. 💬 버튼을 누르고\n2. 하고 싶은 말을 편하게 한 뒤\n3. 끝에 \"보내 줘\"라고 말하세요.\n\n고른 말투로 바꿔서 보내 드려요.\n\n💬 버튼을 꾹 누르면 말투·🔎 찾기·⚙️ 설정이 동그랗게 펼쳐져요.\n🙏 정중하게  😊 친구처럼\n💼 업무 연락  🤗 자녀에게"
-        )
-        box.add(Ui.button(this, "🎤  여기서 연습해 보기", Ui.CARD, sp = 20f) {
-            startActivity(Intent(this, HelperActivity::class.java))
-        }, 16)
-        packageManager.getLaunchIntentForPackage(KAKAO)?.let { launch ->
-            box.add(Ui.button(this, "💬  카톡 열기", sp = 22f) { startActivity(launch) }, 10)
+        val p = Prefs(this)
+
+        // 켜기 / 끄기
+        val onRow = Ui.hbox(this).apply {
+            background = Ui.rounded(this@MainActivity, if (p.enabled) Ui.YELLOW else Ui.CARD, 22, Ui.BROWN)
+            val pad = Ui.dp(this@MainActivity, 18); setPadding(pad, pad, pad, pad)
+            gravity = android.view.Gravity.CENTER_VERTICAL
         }
+        onRow.add(Ui.text(this, if (p.enabled) "켜짐" else "꺼짐", 26f, bold = true), weight = 2f)
+        onRow.add(android.widget.Switch(this).apply {
+            isChecked = p.enabled
+            scaleX = 1.5f; scaleY = 1.5f
+            contentDescription = "말로 답장 켜기 끄기"
+            setOnCheckedChangeListener { _, on ->
+                p.enabled = on
+                KakaoAccessibilityService.instance?.redrawBubble()
+                render()
+            }
+        }, weight = 1f)
+        body.add(onRow, 16)
 
-        body.add(Ui.button(this, "🔎  대화에서 찾기", sp = 20f) {
-            startActivity(Intent(this, AskActivity::class.java))
-        }.apply { minHeight = Ui.dp(this@MainActivity, 76) }, 18)
-        body.add(Ui.text(this, "카톡 대화를 이 앱으로 내보내 두면, 예전에 무슨 말을 했는지 물어볼 수 있어요.", 14f, color = Ui.MUTED), 4)
+        // 아주 짧은 사용법
+        body.add(Ui.text(this,
+            "카톡 대화방의 🎤 버튼을 누르고 말하세요.\n꾹 누르면 말투를 고를 수 있어요.",
+            18f), 16)
 
-        body.add(Ui.button(this, "👨‍👩‍👧  가족에게 설정 보내기", Ui.CARD, sp = 18f) { shareSetup() }, 26)
-        body.add(Ui.text(this, "부모님 폰에 앱을 설치한 뒤, 이 버튼으로 카톡에 설정을 보내면 부모님은 복사만 하시면 됩니다.", 14f, color = Ui.MUTED), 4)
-        body.add(Ui.button(this, "자세한 설정", Ui.CARD, sp = 16f) { showAdvanced = true; render() }, 16)
-        sendLog()
+        // 보내는 방식
+        body.add(Ui.text(this, "보내는 방식", 18f, bold = true), 24)
+        val group = android.widget.RadioGroup(this)
+        SendMode.values().forEachIndexed { i, m ->
+            group.addView(android.widget.RadioButton(this).apply {
+                id = 3000 + i
+                text = "${m.label} 보내기"
+                textSize = 18f * p.textScale
+                setTextColor(Ui.BROWN)
+                setPadding(0, Ui.dp(this@MainActivity, 6), 0, Ui.dp(this@MainActivity, 6))
+                isChecked = m == p.sendMode
+            })
+        }
+        group.setOnCheckedChangeListener { _, id -> SendMode.values().getOrNull(id - 3000)?.let { p.sendMode = it } }
+        body.add(group, 6)
+
+        // 다듬기: 기본 ⟷ 섬세하게 (밀어서 바꿈)
+        body.add(Ui.text(this, "다듬기", 18f, bold = true), 24)
+        val q = Ui.hbox(this).apply { gravity = android.view.Gravity.CENTER_VERTICAL }
+        val basic = Ui.text(this, "기본", 18f, bold = !p.carefulRewrite).apply { gravity = android.view.Gravity.END }
+        val fine = Ui.text(this, "섬세하게", 18f, bold = p.carefulRewrite)
+        q.add(basic, weight = 1f)
+        q.add(android.widget.Switch(this).apply {
+            isChecked = p.carefulRewrite
+            scaleX = 1.4f; scaleY = 1.4f
+            contentDescription = "기본 또는 섬세하게 다듬기"
+            setOnCheckedChangeListener { _, on ->
+                p.carefulRewrite = on
+                basic.setTypeface(null, if (on) android.graphics.Typeface.NORMAL else android.graphics.Typeface.BOLD)
+                fine.setTypeface(null, if (on) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+            }
+        }, weight = 0.6f)
+        q.add(fine, weight = 1f)
+        body.add(q, 8)
+        body.add(View(this), 40)
     }
 
     private fun shareSetup() {
@@ -318,26 +361,7 @@ class MainActivity : Activity() {
             text = label; isChecked = on; textSize = 17f * p.textScale; setTextColor(Ui.BROWN)
         }
         val pressSend = check("입력창에 넣은 뒤 전송 버튼까지 누르기", p.autoPressSend)
-        // 보내는 방식
-        body.add(Ui.text(this, "다듬은 문장 보내는 방식", 16f, bold = true), 16)
-        val sendGroup = android.widget.RadioGroup(this)
-        SendMode.values().forEachIndexed { i, m ->
-            sendGroup.addView(android.widget.RadioButton(this).apply {
-                id = 2000 + i
-                text = "${m.label} 보내기 — ${m.desc}"
-                textSize = 16f * p.textScale
-                setTextColor(Ui.BROWN)
-                isChecked = m == p.sendMode
-            })
-        }
-        body.add(sendGroup, 6)
         body.add(pressSend, 12)
-
-        // 다듬기 품질
-        body.add(Ui.text(this, "답장 다듬기 품질", 16f, bold = true), 16)
-        val careful = check("섬세하게 다듬기 (한 번에 약 10원, 기본은 약 1원)", p.carefulRewrite)
-        body.add(careful, 6)
-        body.add(Ui.text(this, "기본으로도 충분히 자연스럽습니다. 어른께 드리는 글처럼 존댓말이 아주 중요할 때만 켜세요.", 13f, color = Ui.MUTED), 4)
 
         whisperSection(p)
 
@@ -345,14 +369,16 @@ class MainActivity : Activity() {
             p.apiKey = keyFrom(key.text.toString())
             p.myName = name.text.toString().trim()
             p.myRole = role.text.toString().trim()
-            SendMode.values().getOrNull(sendGroup.checkedRadioButtonId - 2000)?.let { p.sendMode = it }
             p.autoPressSend = pressSend.isChecked
-            p.carefulRewrite = careful.isChecked
             Toast.makeText(this, "저장했습니다", Toast.LENGTH_SHORT).show()
             showAdvanced = false
             render()
         }, 18)
         body.add(Ui.button(this, "돌아가기", Ui.CARD, sp = 16f) { showAdvanced = false; render() }, 8)
+        body.add(Ui.button(this, "🔎 대화에서 찾기 (대화·사진 저장)", Ui.CARD, sp = 15f) {
+            startActivity(Intent(this, AskActivity::class.java))
+        }, 20)
+        if (p.apiKey.isNotBlank()) body.add(Ui.button(this, "👨‍👩‍👧 가족에게 설정 보내기", Ui.CARD, sp = 15f) { shareSetup() }, 8)
         // 도우미 버튼이 안 보일 때 원인 확인용
         body.add(Ui.text(this, "도우미 버튼 상태", 14f, bold = true, color = Ui.MUTED), 24)
         body.add(Ui.text(this,

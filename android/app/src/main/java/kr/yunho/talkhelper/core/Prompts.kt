@@ -59,13 +59,16 @@ ${mode.examples.lines().joinToString("\n") { "  $it" }}
         append("<질문>").append(question.trim()).append("</질문>")
     }
 
-    fun user(mode: Mode, spoken: String, screenText: String?, myName: String = "", myRole: String = ""): String = buildString {
+    fun user(mode: Mode, spoken: String, screenText: String?, myName: String = "", myRole: String = "", myStyle: List<String> = emptyList()): String = buildString {
         if (myName.isNotBlank() || myRole.isNotBlank()) {
             append("<보내는사람>").append(listOf(myName, myRole).filter { it.isNotBlank() }.joinToString(", "))
                 .append("</보내는사람>\n\n")
         }
         if (!screenText.isNullOrBlank()) {
             append("<카톡화면에보이는글>\n").append(screenText.takeLast(SCREEN_CHARS)).append("\n</카톡화면에보이는글>\n\n")
+        }
+        if (myStyle.isNotEmpty()) {
+            append("<내평소말투>\n").append(myStyle.joinToString("\n") { "- $it" }).append("\n</내평소말투>\n\n")
         }
         append("<내가말한것>\n").append(spoken.trim()).append("\n</내가말한것>\n\n")
         append("이 말을 '${mode.label}' 말투의 카톡 메시지로 바꿔 주세요.")

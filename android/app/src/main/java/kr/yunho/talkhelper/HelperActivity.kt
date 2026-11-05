@@ -687,7 +687,9 @@ class HelperActivity : Activity() {
         resultBox.visibility = View.GONE
         val m = mode
         Bg.run({
-            claude.rewrite(m, spoken, screenText, prefs.myName, prefs.myRole, prefs.carefulRewrite)
+            // '내 말투': 이 방을 내보내 저장해 뒀으면 그 방에서 내가 보낸 말, 아니면 화면의 내 말풍선을 예시로
+            val style = if (m == Mode.MINE) ChatStore.myStyle(this, chatForThisRoom().second).ifEmpty { kr.yunho.talkhelper.core.MyStyle.fromScreen(screenText) } else emptyList()
+            claude.rewrite(m, spoken, screenText, prefs.myName, prefs.myRole, prefs.carefulRewrite, style)
                 .also { claude.lastUsage?.let { u -> prefs.lastUsage = u.describe() } }
         }) { r ->
             if (isFinishing) return@run

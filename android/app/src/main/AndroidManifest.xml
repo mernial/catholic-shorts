@@ -2,6 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- 고급 받아쓰기 파일을 와이파이에서 받는지 확인 -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />

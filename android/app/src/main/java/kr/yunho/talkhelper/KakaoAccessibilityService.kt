@@ -11,7 +11,6 @@ import android.os.Handler
 import android.os.Looper
 import android.util.TypedValue
 import android.view.Gravity
-import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
@@ -324,7 +323,6 @@ class KakaoAccessibilityService : AccessibilityService() {
         val longPress = Runnable {
             if (!dragged) {
                 longPressed = true
-                v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
                 showMenu()
             }
         }
@@ -452,6 +450,7 @@ class KakaoAccessibilityService : AccessibilityService() {
         }
         runCatching { wm.addView(root, lp); menu = root; menuItems = items }
             .onFailure { diag("메뉴 그리기 실패: ${it.javaClass.simpleName} ${it.message}"); return }
+        buzz()
 
         // 버튼 자리에서 화면 가운데 쪽으로 부채꼴로 하나씩 펼침
         root.post {
@@ -480,6 +479,14 @@ class KakaoAccessibilityService : AccessibilityService() {
         }
     }
 
+    /** 메뉴가 펼쳐질 때 '드르륵' 한 번 (휴대폰 '터치 진동' 설정이 꺼져 있어도 울리도록 진동기를 직접 씀) */
+    private fun buzz() = runCatching {
+        val vib = if (Build.VERSION.SDK_INT >= 31)
+            (getSystemService(VIBRATOR_MANAGER_SERVICE) as android.os.VibratorManager).defaultVibrator
+        else @Suppress("DEPRECATION") (getSystemService(VIBRATOR_SERVICE) as android.os.Vibrator)
+        vib.vibrate(android.os.VibrationEffect.createOneShot(60, android.os.VibrationEffect.DEFAULT_AMPLITUDE))
+    }
+
     private fun itemAt(rawX: Float, rawY: Float): Pair<View, () -> Unit>? = menuItems.firstOrNull { (v, _) ->
         val l = IntArray(2).also { v.getLocationOnScreen(it) }
         rawX >= l[0] && rawX <= l[0] + v.width && rawY >= l[1] && rawY <= l[1] + v.height
@@ -491,7 +498,6 @@ class KakaoAccessibilityService : AccessibilityService() {
         if (hot === menuHot) return
         menuHot?.animate()?.scaleX(1f)?.scaleY(1f)?.setStartDelay(0)?.setDuration(100)?.start()
         hot?.animate()?.scaleX(1.18f)?.scaleY(1.18f)?.setStartDelay(0)?.setDuration(100)?.start()
-        hot?.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
         menuHot = hot
     }
 

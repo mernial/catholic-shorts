@@ -68,6 +68,9 @@ class ClaudeTest {
             assertTrue(body.contains("\"model\":\"claude-haiku-5-5\""))
             assertTrue(!body.contains("fallbacks"))
             assertTrue(body.contains("\"effort\":\"low\""))
+            // 답장은 {"message": ...} 형식으로만 받음
+            assertTrue(body.contains("\"json_schema\""))
+            assertTrue(body.contains("\"required\":[\"message\"]"))
             assertTrue(body.contains("야 이거 토요일에 하자고 해"))
             assertTrue(body.contains("청년 모임 언제 할까요?"))
             assertTrue(body.contains("<보내는사람>윤호요셉, 본당 주임신부</보내는사람>"))
@@ -118,5 +121,14 @@ class ClaudeTest {
             val e = assertThrows(HelperException::class.java) { c.rewrite(Mode.POLITE, "응", null, "", "") }
             assertTrue(e.message!!.contains("API 키"))
         }
+    }
+
+    @Test
+    fun onlyTheMessageIsSent() {
+        assertEquals("얘가 잘못 이해하고 보냈어요 ㅎㅎ", Claude.messageOnly("{\"message\":\"얘가 잘못 이해하고 보냈어요 ㅎㅎ\"}"))
+        // 형식을 어겨 생각한 내용이 앞에 붙어 와도 마지막 문단만
+        val leaked = "사용자가 말한 뜻: 잘못 이해하고 보냈다는 것.\n\nHmm, the user wants this. Better rewrite faithfully:\n\n얘가 잘못 이해하고 보냈어요 ㅎㅎ"
+        assertEquals("얘가 잘못 이해하고 보냈어요 ㅎㅎ", Claude.messageOnly(leaked))
+        assertEquals("네, 알겠어요.", Claude.messageOnly("네, 알겠어요."))
     }
 }

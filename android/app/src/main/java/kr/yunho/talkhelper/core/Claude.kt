@@ -9,7 +9,9 @@ import com.anthropic.errors.InternalServerException
 import com.anthropic.errors.PermissionDeniedException
 import com.anthropic.errors.RateLimitException
 import com.anthropic.errors.UnauthorizedException
+import com.anthropic.core.JsonValue
 import com.anthropic.models.beta.messages.BetaCacheControlEphemeral
+import com.anthropic.models.beta.messages.BetaJsonOutputFormat
 import com.anthropic.models.beta.messages.BetaOutputConfig
 import com.anthropic.models.beta.messages.BetaStopReason
 import com.anthropic.models.beta.messages.BetaTextBlockParam
@@ -37,7 +39,8 @@ class Claude(apiKey: String, baseUrl: String? = null) {
         mode: Mode, spoken: String, screenText: String?, myName: String, myRole: String,
         myStyle: List<String> = emptyList(),
     ): String =
-        ask(Prompts.system(mode), Prompts.user(mode, spoken, screenText, myName, myRole, myStyle))
+        // 정해진 형식 {"message": "..."} 으로만 받아서, AI 가 생각한 내용이 카톡으로 나가지 않게 함
+        messageOnly(ask(Prompts.system(mode), Prompts.user(mode, spoken, screenText, myName, myRole, myStyle), json = true))
             .trim().removeSurrounding("\"").trim()
             // 사용자가 말하지 않은 호칭(예: 내 신분인 '신부님')으로 상대를 부르면 바로잡음
             .let { TitleGuard.fix(it, spoken) }
@@ -46,12 +49,13 @@ class Claude(apiKey: String, baseUrl: String? = null) {
     fun answer(question: String, chat: String, room: String?): String =
         ask(Prompts.ASK_SYSTEM, Prompts.askUser(question, room, ChatSearch.excerpt(chat, question))).trim()
 
-    private fun ask(system: String, user: String, model: String = MODEL): String {
+    private fun ask(system: String, user: String, model: String = MODEL, json: Boolean = false): String {
+        val out = BetaOutputConfig.builder().effort(BetaOutputConfig.Effort.LOW)   // 짧은 작업이라 속도·요금을 줄임
+        if (json) out.format(MESSAGE_FORMAT)
         val builder = MessageCreateParams.builder()
             .model(model)
             .maxTokens(4000)
-            // 짧은 작업이라 effort 를 낮춰 속도와 요금을 줄임
-            .outputConfig(BetaOutputConfig.builder().effort(BetaOutputConfig.Effort.LOW).build())
+            .outputConfig(out.build())
         val params = builder
             // 매번 같은 시스템 지침만 캐시 (5분 동안 다시 쓰면 그 부분 요금이 1/10).
             // 매번 바뀌는 카톡 화면 글과 말한 내용은 캐시하지 않음
@@ -106,6 +110,30 @@ class Claude(apiKey: String, baseUrl: String? = null) {
         private set
 
     companion object {
+        /** 답장은 {"message": "보낼 글"} 형식으로만 받음 */
+        private val MESSAGE_FORMAT: BetaJsonOutputFormat = BetaJsonOutputFormat.builder()
+            .type(JsonValue.from("json_schema"))
+            .schema(BetaJsonOutputFormat.Schema.builder()
+                .putAdditionalProperty("type", JsonValue.from("object"))
+                .putAdditionalProperty("properties", JsonValue.from(mapOf("message" to mapOf("type" to "string"))))
+                .putAdditionalProperty("required", JsonValue.from(listOf("message")))
+                .putAdditionalProperty("additionalProperties", JsonValue.from(false))
+                .build())
+            .build()
+
+        private val JSON = com.fasterxml.jackson.databind.ObjectMapper()
+
+        /**
+         * 받은 글에서 보낼 메시지만 꺼냄. 형식대로 왔으면 "message" 값,
+         * 아니면(드물게) 마지막 문단만 — 앞쪽의 설명·생각이 카톡으로 나가는 일을 막음
+         */
+        fun messageOnly(raw: String): String {
+            val t = raw.trim()
+            runCatching { JSON.readTree(t)?.get("message")?.asText() }.getOrNull()
+                ?.takeIf { it.isNotBlank() }?.let { return it }
+            return t.split(Regex("\\n\\s*\\n")).map { it.trim() }.lastOrNull { it.isNotEmpty() } ?: t
+        }
+
         // 답장 다듬기와 대화에서 찾기 모두 가장 빠르고 저렴한 모델 (한 번에 1~4원)
         const val MODEL = "claude-haiku-5-5"
     }

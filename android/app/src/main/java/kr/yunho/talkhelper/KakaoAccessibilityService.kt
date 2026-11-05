@@ -782,21 +782,18 @@ class KakaoAccessibilityService : AccessibilityService() {
             val cx = bl[0] + b.width / 2f - o[0]
             val cy = bl[1] + b.height / 2f - o[1]
             val w = root.width; val h = root.height
-            // 버튼이 오른쪽에 있으면 왼쪽으로, 왼쪽에 있으면 오른쪽으로 반원(위→아래)으로 펼침.
-            // 버튼이 화면 위·아래 끝에 있어도 반원이 화면 안에 다 들어오게 중심을 옮김
-            val r = Ui.dp(this, if (items.size > 6) 162 else 140)   // 동그라미가 많으면 반원을 크게
-            val toward = if (cx > w / 2f) Math.PI else 0.0
-            val spread = Math.PI
-            val half = r + size / 2f
-            val acy = if (h > half * 2) cy.coerceIn(half, h - half) else h / 2f
+            // 같은 크기·같은 간격으로 반원 위에 놓음 (화면에 안 들어가면 반원 전체를 옮기거나 다 같이 줄임)
+            val p = kr.yunho.talkhelper.core.MenuLayout.place(
+                n = items.size, cx = cx, cy = cy, w = w.toFloat(), h = h.toFloat(),
+                maxRadius = Ui.dp(this, 172).toFloat(), maxSize = size.toFloat(),
+                gap = Ui.dp(this, 8).toFloat(), margin = Ui.dp(this, 8).toFloat(), minSize = Ui.dp(this, 56).toFloat(),
+            )
+            val sz = p.size.toInt()
             items.forEachIndexed { i, (v, _) ->
-                // 위에서부터 차례로 (오른쪽 버튼이면 시계 반대 방향)
-                val t = i.toDouble() / (items.size - 1)
-                val a = if (toward == 0.0) -spread / 2 + spread * t else Math.PI + spread / 2 - spread * t
-                val x = (cx + (r * Math.cos(a)).toFloat() - size / 2f).coerceIn(0f, maxOf(0, w - size).toFloat())
-                val y = (acy + (r * Math.sin(a)).toFloat() - size / 2f).coerceIn(0f, maxOf(0, h - size).toFloat())
-                v.translationX = cx - size / 2f; v.translationY = cy - size / 2f
-                v.animate().translationX(x).translationY(y).alpha(1f).scaleX(1f).scaleY(1f)
+                if (sz != size) v.layoutParams = FrameLayout.LayoutParams(sz, sz)
+                val (x, y) = p.centers[i]
+                v.translationX = cx - sz / 2f; v.translationY = cy - sz / 2f
+                v.animate().translationX(x - sz / 2f).translationY(y - sz / 2f).alpha(1f).scaleX(1f).scaleY(1f)
                     .setStartDelay(i * 50L).setDuration(220).start()
             }
         }

@@ -50,8 +50,10 @@ class HelperActivity : Activity() {
         private const val REQ_MIC = 7
         private const val COUNTDOWN = 3
         private const val MAX_RETRY = 4
-        /** 신호 말 없이 이만큼 조용하면 다 말한 것으로 봄 */
-        private const val SILENCE_END_MS = 6000L
+        /** 말을 시작한 뒤 이만큼 아무 말이 없으면 보내지 않고 잠시 멈춤 ("보내 줘"라고 해야만 보냄) */
+        private const val IDLE_PAUSE_MS = 3 * 60_000L
+        /** 처음에 이만큼 아무 말이 없으면 멈춤 */
+        private const val NO_SPEECH_MS = 30_000L
 
     }
 
@@ -87,6 +89,8 @@ class HelperActivity : Activity() {
     // 말이 끝나면(잠시 조용해지면) 자동으로 듣기를 마침. 말을 시작하기 전 침묵은 몇 번 기다려 줌
     private var retries = 0
     private var lastHeardAt = 0L
+    private var listenStartedAt = 0L
+    private var paused = false
     private var recognizer: SpeechRecognizer? = null
     private var listening = false
     private var finishing = false
@@ -240,7 +244,12 @@ class HelperActivity : Activity() {
         }, weight = 0.7f).visibility = View.GONE
         card.add(talkRow, 8)
         resetMic()
-        heardView = Ui.text(ctx, "끝에 \"보내 줘\"라고 하면 바로 보냅니다", 15f, color = Ui.MUTED).apply { maxLines = 3 }
+        heardView = Ui.text(ctx, "끝에 \"보내 줘\"라고 하면 바로 보냅니다", 15f, color = Ui.MUTED).apply {
+            // 길게 말해도 다 보이게 (넘치면 안에서 위아래로 넘겨 봄)
+            maxLines = 10
+            isVerticalScrollBarEnabled = true
+            movementMethod = android.text.method.ScrollingMovementMethod()
+        }
         card.add(heardView, 6)
 
         typedRow = Ui.hbox(ctx).apply { visibility = View.GONE }
@@ -363,14 +372,18 @@ class HelperActivity : Activity() {
             return
         }
         stopCountdown()
-        heard.clear(); partial = ""; retries = 0; lastHeardAt = 0L
+        // 잠시 멈췄던 거면 들은 말을 그대로 두고 이어서 들음
+        if (!paused) { heard.clear(); partial = ""; lastHeardAt = 0L }
+        paused = false
+        retries = 0
+        listenStartedAt = System.currentTimeMillis()
         if (::answerBox.isInitialized) answerBox.visibility = View.GONE
         resultBox.visibility = View.GONE
         listening = true; finishing = false
         micButton.text = "🎙️ 듣는 중 (누르면 끝)"
         micButton.background = Ui.rounded(this, Ui.GREEN, 18)
         micButton.setTextColor(Ui.CARD)
-        heardView.text = "듣고 있어요… 끝에 \"보내 줘\"라고 하세요"
+        heardView.text = if (heard.isNotBlank()) heard.toString().trim() else "듣고 있어요… 다 말하면 끝에 \"보내 줘\"라고 하세요"
         heardView.visibility = View.VISIBLE
         showStatus(null)
         listen()
@@ -463,7 +476,7 @@ class HelperActivity : Activity() {
             partial = b?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
             if (partial.isNotBlank()) lastHeardAt = System.currentTimeMillis()
             val now = (heard.toString() + " " + partial).trim()
-            heardView.text = now.ifBlank { "듣고 있어요…" }
+            showHeard(now.ifBlank { "듣고 있어요…" })
             // "보내 줘", "끝" 이 들리면 바로 마무리
             if (listening && EndSignal.isEnd(now)) stopListening()
         }
@@ -472,7 +485,7 @@ class HelperActivity : Activity() {
             val best = b?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
             if (best.isNotBlank()) { heard.append(' ').append(best); lastHeardAt = System.currentTimeMillis() }
             partial = ""
-            heardView.text = heard.toString().trim().ifBlank { "듣고 있어요…" }
+            showHeard(heard.toString().trim().ifBlank { "듣고 있어요…" })
             when {
                 finishing -> finishSpeech()
                 !listening -> {}
@@ -504,14 +517,37 @@ class HelperActivity : Activity() {
      * 신호 말이 나올 때까지 이어서 들음. 말을 쉬어도 끊기지 않음.
      * 한참 조용하면(신호 말을 잊었으면) 그때까지 한 말로 마무리.
      */
+    /**
+     * 말이 잠깐 끊겨도 멈추지 않고 계속 들음. "보내 줘"·"끝"이 들려야(또는 버튼을 눌러야) 마무리.
+     * 너무 오래 조용하면 보내지 않고 잠시 멈춤 (들은 말은 그대로 두고 이어서 말할 수 있음)
+     */
     private fun keepListening() {
+        val now = System.currentTimeMillis()
         val spoken = heard.isNotBlank()
         when {
-            spoken && System.currentTimeMillis() - lastHeardAt >= SILENCE_END_MS -> { listening = false; finishSpeech() }
-            spoken -> Bg.main.postDelayed({ if (listening) listen() }, 150)
-            retries++ < MAX_RETRY -> Bg.main.postDelayed({ if (listening) listen() }, 150)
-            else -> { resetMic(); heardView.text = "말씀을 듣지 못했어요. 다시 눌러 주세요." }
+            !spoken && now - listenStartedAt >= NO_SPEECH_MS -> { resetMic(); heardView.text = "말씀을 듣지 못했어요. 다시 눌러 주세요." }
+            spoken && now - lastHeardAt >= IDLE_PAUSE_MS -> pauseListening()
+            else -> Bg.main.postDelayed({ if (listening) listen() }, 150)
         }
+    }
+
+    /** 들은 말 보여 주기 — 길어지면 마지막 줄이 보이게 아래로 넘김 */
+    private fun showHeard(t: String) {
+        heardView.text = t
+        heardView.post {
+            val l = heardView.layout ?: return@post
+            val y = l.getLineTop(heardView.lineCount) - (heardView.height - heardView.paddingTop - heardView.paddingBottom)
+            heardView.scrollTo(0, maxOf(0, y))
+        }
+    }
+
+    /** 오래 조용해서 잠시 멈춤 — 보내지는 않음 */
+    private fun pauseListening() {
+        runCatching { recognizer?.cancel() }
+        resetMic()
+        paused = true
+        micButton.text = "🎤 이어서 말하기"
+        heardView.text = heard.toString().trim() + "\n\n(잠시 멈췄어요. 🎤를 누르고 이어서 말한 뒤 \"보내 줘\"라고 하세요)"
     }
 
     // ───────── 다듬기 ─────────

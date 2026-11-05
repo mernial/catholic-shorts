@@ -40,7 +40,9 @@ class Claude(apiKey: String, baseUrl: String? = null) {
         myStyle: List<String> = emptyList(),
     ): String =
         // 정해진 형식 {"message": "..."} 으로만 받아서, AI 가 생각한 내용이 카톡으로 나가지 않게 함
-        messageOnly(ask(Prompts.system(mode), Prompts.user(mode, spoken, screenText, myName, myRole, myStyle), json = true))
+        messageOnly(ask(Prompts.system(mode), Prompts.user(mode, spoken, screenText, myName, myRole, myStyle), json = true,
+            // 말한 뜻을 더 잘 알아듣도록 한 단계 더 꼼꼼하게 (요금은 거의 같음)
+            effort = BetaOutputConfig.Effort.MEDIUM))
             .trim().removeSurrounding("\"").trim()
             // 사용자가 말하지 않은 호칭(예: 내 신분인 '신부님')으로 상대를 부르면 바로잡음
             .let { TitleGuard.fix(it, spoken) }
@@ -49,8 +51,11 @@ class Claude(apiKey: String, baseUrl: String? = null) {
     fun answer(question: String, chat: String, room: String?): String =
         ask(Prompts.ASK_SYSTEM, Prompts.askUser(question, room, ChatSearch.excerpt(chat, question))).trim()
 
-    private fun ask(system: String, user: String, model: String = MODEL, json: Boolean = false): String {
-        val out = BetaOutputConfig.builder().effort(BetaOutputConfig.Effort.LOW)   // 짧은 작업이라 속도·요금을 줄임
+    private fun ask(
+        system: String, user: String, model: String = MODEL, json: Boolean = false,
+        effort: BetaOutputConfig.Effort = BetaOutputConfig.Effort.LOW,   // 찾기는 빠르게
+    ): String {
+        val out = BetaOutputConfig.builder().effort(effort)
         if (json) out.format(MESSAGE_FORMAT)
         val builder = MessageCreateParams.builder()
             .model(model)

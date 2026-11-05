@@ -67,7 +67,7 @@ class ClaudeTest {
             assertEquals("토요일 저녁 7시에 뵙겠습니다.", out)
             assertTrue(body.contains("\"model\":\"claude-haiku-5-5\""))
             assertTrue(!body.contains("fallbacks"))
-            assertTrue(body.contains("\"effort\":\"low\""))
+            assertTrue(body.contains("\"effort\":\"medium\""))
             // 답장은 {"message": ...} 형식으로만 받음
             assertTrue(body.contains("\"json_schema\""))
             assertTrue(body.contains("\"required\":[\"message\"]"))

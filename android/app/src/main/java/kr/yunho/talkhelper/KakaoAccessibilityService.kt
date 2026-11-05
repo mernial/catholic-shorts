@@ -461,8 +461,8 @@ class KakaoAccessibilityService : AccessibilityService() {
             val r = Ui.dp(this, 140)
             items.forEachIndexed { i, (v, _) ->
                 val a = toward - spread / 2 + spread * i / (items.size - 1)
-                val x = (cx + r * Math.cos(a) - size / 2f).coerceIn(0f, (w - size).toFloat())
-                val y = (cy + r * Math.sin(a) - size / 2f).coerceIn(0f, (h - size).toFloat())
+                val x = (cx + (r * Math.cos(a)).toFloat() - size / 2f).coerceIn(0f, maxOf(0, w - size).toFloat())
+                val y = (cy + (r * Math.sin(a)).toFloat() - size / 2f).coerceIn(0f, maxOf(0, h - size).toFloat())
                 v.translationX = cx - size / 2f; v.translationY = cy - size / 2f
                 v.animate().translationX(x).translationY(y).alpha(1f).scaleX(1f).scaleY(1f)
                     .setStartDelay(i * 50L).setDuration(220).start()

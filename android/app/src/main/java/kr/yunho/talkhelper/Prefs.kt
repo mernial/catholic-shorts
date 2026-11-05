@@ -40,6 +40,11 @@ class Prefs(ctx: Context) {
             ?: if (sp.getBoolean("autoSend", true)) SendMode.COUNTDOWN else SendMode.CONFIRM
         set(v) = sp.edit().putString("sendMode", v.name).apply()
 
+    /** 꾹 누르면 펼쳐지는 동그라미 순서 (사용자가 끌어서 바꾼 것) */
+    var menuOrder: List<String>
+        get() = (sp.getString("menuOrder", "") ?: "").split(',').filter { it.isNotBlank() }
+        set(v) = sp.edit().putString("menuOrder", v.joinToString(",")).apply()
+
     /** 찾은 내용을 소리로 읽어 주기 (기본: 안 읽음) */
     var readAnswers: Boolean
         get() = sp.getBoolean("readAnswers", false)

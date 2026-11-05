@@ -724,6 +724,72 @@ class KakaoAccessibilityService : AccessibilityService() {
     // ───────── 꾹 누르면 버튼 둘레에 펼쳐지는 동그라미 메뉴 ─────────
 
     private var menu: FrameLayout? = null
+
+    private class MenuEntry(val key: String, val label: String, val on: Boolean, val act: () -> Unit)
+    /** 지금 놓인 순서 (자리 번호 = 목록 순서) */
+    private val menuOrder = mutableListOf<Pair<MenuEntry, View>>()
+    private var menuSlots: List<Pair<Float, Float>> = emptyList()
+    private var menuSlotSize = 0
+
+    /** 동그라미 누르기 = 고르기, 꾹 누른 채 끌기 = 자리 옮기기 */
+    @SuppressLint("ClickableViewAccessibility")
+    private fun attachReorder(v: View, entry: MenuEntry) {
+        var downX = 0f; var downY = 0f; var startX = 0f; var startY = 0f
+        var dragging = false; var moved = false
+        val slop = Ui.dp(this, 10)
+        val startDrag = Runnable {
+            if (moved) return@Runnable
+            dragging = true
+            buzz()
+            v.bringToFront()
+            v.animate().scaleX(1.2f).scaleY(1.2f).setStartDelay(0).setDuration(120).start()
+        }
+        v.setOnTouchListener { _, e ->
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = e.rawX; downY = e.rawY; startX = v.translationX; startY = v.translationY
+                    dragging = false; moved = false
+                    handler.postDelayed(startDrag, LONG_PRESS_MS)
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = e.rawX - downX; val dy = e.rawY - downY
+                    if (!dragging && Math.hypot(dx.toDouble(), dy.toDouble()) > slop) { moved = true; handler.removeCallbacks(startDrag) }
+                    if (dragging && menuSlots.isNotEmpty()) {
+                        v.translationX = startX + dx; v.translationY = startY + dy
+                        // 손가락에 가장 가까운 자리로 옮기고, 나머지는 한 칸씩 비켜 줌
+                        val cx = v.translationX + menuSlotSize / 2f; val cy = v.translationY + menuSlotSize / 2f
+                        val target = menuSlots.indices.minByOrNull { i -> Math.hypot((menuSlots[i].first - cx).toDouble(), (menuSlots[i].second - cy).toDouble()) } ?: return@setOnTouchListener true
+                        val cur = menuOrder.indexOfFirst { it.second === v }
+                        if (cur >= 0 && target != cur) {
+                            menuOrder.add(target, menuOrder.removeAt(cur))
+                            layoutMenu(except = v)
+                        }
+                    }
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    handler.removeCallbacks(startDrag)
+                    if (dragging) {
+                        dragging = false
+                        layoutMenu(except = null)
+                        Prefs(this).menuOrder = menuOrder.map { it.first.key }
+                        menuItems = menuOrder.map { it.second to it.first.act }
+                    } else if (!moved && e.actionMasked == MotionEvent.ACTION_UP) entry.act()
+                }
+            }
+            true
+        }
+    }
+
+    /** 놓인 순서대로 자리에 맞춰 움직임 ([except] 는 지금 끌고 있는 동그라미) */
+    private fun layoutMenu(except: View?) {
+        val sz = menuSlotSize
+        menuOrder.forEachIndexed { i, (_, view) ->
+            if (view === except || i >= menuSlots.size) return@forEachIndexed
+            val (x, y) = menuSlots[i]
+            view.animate().translationX(x - sz / 2f).translationY(y - sz / 2f).scaleX(1f).scaleY(1f)
+                .setStartDelay(0).setDuration(160).start()
+        }
+    }
     private var menuItems: List<Pair<View, () -> Unit>> = emptyList()
     private var menuHot: View? = null
 
@@ -748,13 +814,16 @@ class KakaoAccessibilityService : AccessibilityService() {
             PixelFormat.TRANSLUCENT,
         ).apply { gravity = Gravity.TOP or Gravity.START }
 
-        // 말투 4가지 + 찾기 + 설정. 지금 고른 말투는 노란색
-        val entries: List<Triple<String, Boolean, () -> Unit>> =
-            Mode.values().map { m -> Triple("${m.emoji}\n${m.label}", m == prefs.mode) { prefs.mode = m; openHelper() } } +
-                Triple("🔎\n찾기", false) { openHelper(ask = true) } +
-                Triple("⚙️\n설정", false) { openQuickSettings() }
+        // 말투들 + 찾기 + 설정. 지금 고른 말투는 진하게. 순서는 사용자가 끌어서 바꾼 대로
+        val all = Mode.values().map { m -> MenuEntry(m.name, "${m.emoji}\n${m.label}", m == prefs.mode) { prefs.mode = m; openHelper() } } +
+            MenuEntry("ASK", "🔎\n찾기", false) { openHelper(ask = true) } +
+            MenuEntry("SETTINGS", "⚙️\n설정", false) { openQuickSettings() }
+        val savedOrder = prefs.menuOrder
+        val entries = savedOrder.mapNotNull { k -> all.firstOrNull { it.key == k } } + all.filter { it.key !in savedOrder }
         val size = Ui.dp(this, 78)
-        val items = entries.map { (label, on, act) ->
+        menuOrder.clear()
+        val items = entries.map { entry ->
+            val (label, on, act) = Triple(entry.label, entry.on, entry.act)
             val item = TextView(this).apply {
                 text = label
                 gravity = Gravity.CENTER
@@ -766,11 +835,20 @@ class KakaoAccessibilityService : AccessibilityService() {
                 elevation = Ui.dp(this@KakaoAccessibilityService, 8).toFloat()
                 contentDescription = label.replace("\n", " ")
                 alpha = 0f; scaleX = 0.3f; scaleY = 0.3f
-                setOnClickListener { act() }
             }
+            attachReorder(item, entry)
+            menuOrder += entry to item
             root.addView(item, FrameLayout.LayoutParams(size, size))
             item to act
         }
+        // 사용법 한 줄
+        root.addView(TextView(this).apply {
+            text = "동그라미를 꾹 누른 채 끌면 순서를 바꿀 수 있어요"
+            setTextColor(0xCCFFFFFF.toInt())
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            gravity = Gravity.CENTER
+        }, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT,
+            Gravity.BOTTOM).apply { bottomMargin = Ui.dp(this@KakaoAccessibilityService, 48) })
         runCatching { wm.addView(root, lp); menu = root; menuItems = items }
             .onFailure { diag("메뉴 그리기 실패: ${it.javaClass.simpleName} ${it.message}"); return }
         buzz()
@@ -789,6 +867,8 @@ class KakaoAccessibilityService : AccessibilityService() {
                 gap = Ui.dp(this, 8).toFloat(), margin = Ui.dp(this, 8).toFloat(), minSize = Ui.dp(this, 56).toFloat(),
             )
             val sz = p.size.toInt()
+            menuSlots = p.centers
+            menuSlotSize = sz
             items.forEachIndexed { i, (v, _) ->
                 if (sz != size) v.layoutParams = FrameLayout.LayoutParams(sz, sz)
                 val (x, y) = p.centers[i]

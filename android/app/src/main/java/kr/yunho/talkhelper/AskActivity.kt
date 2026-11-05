@@ -114,6 +114,7 @@ class AskActivity : Activity(), TextToSpeech.OnInitListener {
             } else if (Build.VERSION.SDK_INT >= 33) i.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
             else i.getParcelableExtra(Intent.EXTRA_STREAM)
             val text = i.getStringExtra(Intent.EXTRA_TEXT)
+            ChatStore.nameHint = pendingTitle   // 파일에 방 이름이 없으면 카톡 화면의 방 이름으로 저장
             Prefs(this).logExport("받음: ${i.action?.substringAfterLast('.')} ${i.type} 파일=${uri != null} 글=${text?.length ?: 0}자 · 기다리는 질문=${pendingQuestion != null}")
             showBusy("💬 대화를 저장하는 중이에요…\n\n내보낸 대화는 이 휴대폰 안에만 보관돼요")
             importChat {

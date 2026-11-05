@@ -528,6 +528,36 @@ class HelperActivity : Activity() {
         // 내보내 저장해 둔 대화가 없으면: 먼저 이 방 대화를 내보낼지 물어봄
         if (room == null && svc != null) {
             showStatus(null)
+            val rooms = AskActivity.savedRooms(this)
+            prefs.logExport("찾기: 방 이름 '${roomTitle ?: "못 읽음"}' · 저장된 방 ${rooms.joinToString().ifBlank { "없음" }} → 짝 못 찾음")
+            // 이미 내보낸 대화가 있으면, 그중에서 이 방을 고르게 함 (고르면 다음부터 바로 찾음)
+            if (rooms.isNotEmpty()) {
+                val items = rooms.map { "💬 $it" } + "➕ 이 방은 처음이에요 (새로 내보내기)"
+                AlertDialog.Builder(this)
+                    .setTitle("이 방 대화를 이미 내보냈나요? 내보낸 대화를 골라 주세요")
+                    .setItems(items.toTypedArray()) { _, i ->
+                        if (i < rooms.size) {
+                            val picked = rooms[i]
+                            roomTitle?.let { prefs.addRoomAlias(kr.yunho.talkhelper.core.RoomMatch.norm(it), picked) }
+                            prefs.logExport("방 고름: '${roomTitle ?: "?"}' = '$picked'")
+                            val saved = ChatStore.chatText(this, picked).orEmpty()
+                            answerFrom(question, "$saved\n\n[지금 카톡 화면]\n${screenText.orEmpty()}", picked, 0)
+                        } else askExport(question, chat, svc)
+                    }
+                    .setNegativeButton("취소", null)
+                    .show()
+                return
+            }
+            askExport(question, chat, svc)
+            return
+        }
+        if (chat.isBlank()) return showStatus("화면에서 대화를 읽지 못했어요. 카톡 대화방에서 다시 눌러 주세요.", Ui.RED)
+        answerFrom(question, chat, room, 0)
+    }
+
+    /** 이 방 대화를 내보낼지 물어봄 */
+    private fun askExport(question: String, chat: String, svc: KakaoAccessibilityService) {
+        run {
             AlertDialog.Builder(this)
                 .setTitle("이 카톡방의 대화 메시지를 내보낼까요?")
                 .setMessage(
@@ -540,10 +570,7 @@ class HelperActivity : Activity() {
                 .setNegativeButton("이번엔 화면에서만") { _, _ -> collectThenAsk(question, chat, svc) }
                 .setNeutralButton("취소", null)
                 .show()
-            return
         }
-        if (chat.isBlank()) return showStatus("화면에서 대화를 읽지 못했어요. 카톡 대화방에서 다시 눌러 주세요.", Ui.RED)
-        answerFrom(question, chat, room, 0)
     }
 
     /** 카톡 메뉴를 대신 눌러 이 방 대화를 이 앱으로 내보내고, 저장되면 '대화에서 찾기'가 이어서 답함 */

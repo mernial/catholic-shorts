@@ -24,6 +24,9 @@ object ChatStore {
     fun mediaDir(c: Context, room: String) = File(dir(c), "$room.media")
     private fun safe(room: String) = room.replace(Regex("[\\\\/:*?\"<>|]"), "_").take(60)
 
+    /** 내보낸 파일에 방 이름이 없을 때 쓸 이름 (카톡 화면에서 읽은 방 이름) */
+    @Volatile var nameHint: String? = null
+
     /** 저장 결과: 방 이름과 함께 저장한 사진 수 */
     data class Saved(val room: String, val photos: Int)
 
@@ -109,7 +112,7 @@ object ChatStore {
     private fun finish(c: Context, text: String?, incoming: File, photos: Int): Saved? {
         // 카톡 대화가 아니면(다른 앱에서 사진·문서를 잘못 보낸 경우) 저장하지 않음
         if (text.isNullOrBlank() || !looksLikeKakaoChat(text)) { incoming.deleteRecursively(); return null }
-        val room = safe(ChatSearch.roomName(text) ?: "내보낸 대화")
+        val room = safe(ChatSearch.roomName(text) ?: nameHint?.takeIf { it.isNotBlank() } ?: "내보낸 대화")
         File(dir(c), "$room.txt").writeText(text)
         val media = mediaDir(c, room)
         if (photos > 0) { media.deleteRecursively(); incoming.renameTo(media) }

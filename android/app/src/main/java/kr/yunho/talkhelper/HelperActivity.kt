@@ -50,7 +50,7 @@ class HelperActivity : Activity() {
         private const val REQ_MIC = 7
         private const val COUNTDOWN = 3
         private const val MAX_RETRY = 4
-        /** 말을 시작한 뒤 이만큼 아무 말이 없으면 보내지 않고 잠시 멈춤 ("보내 줘"라고 해야만 보냄) */
+        /** 말을 시작한 뒤 이만큼 아무 말이 없으면 보내지 않고 잠시 멈춤 ("~라고 보내 줘"라고 해야만 보냄) */
         private const val IDLE_PAUSE_MS = 3 * 60_000L
         /** 처음에 이만큼 아무 말이 없으면 멈춤 */
         private const val NO_SPEECH_MS = 30_000L
@@ -244,7 +244,7 @@ class HelperActivity : Activity() {
         }, weight = 0.7f).visibility = View.GONE
         card.add(talkRow, 8)
         resetMic()
-        heardView = Ui.text(ctx, "끝에 \"보내 줘\"라고 하면 바로 보냅니다", 15f, color = Ui.MUTED).apply {
+        heardView = Ui.text(ctx, "다 말하고 끝에 \"…라고 보내 줘\"라고 하면 보냅니다", 15f, color = Ui.MUTED).apply {
             // 길게 말해도 다 보이게 (넘치면 안에서 위아래로 넘겨 봄)
             maxLines = 10
             isVerticalScrollBarEnabled = true
@@ -383,7 +383,7 @@ class HelperActivity : Activity() {
         micButton.text = "🎙️ 듣는 중 (누르면 끝)"
         micButton.background = Ui.rounded(this, Ui.GREEN, 18)
         micButton.setTextColor(Ui.CARD)
-        heardView.text = if (heard.isNotBlank()) heard.toString().trim() else "듣고 있어요… 다 말하면 끝에 \"보내 줘\"라고 하세요"
+        heardView.text = if (heard.isNotBlank()) heard.toString().trim() else "듣고 있어요… 다 말하면 끝에 \"…라고 보내 줘\"라고 하세요"
         heardView.visibility = View.VISIBLE
         showStatus(null)
         listen()
@@ -518,7 +518,7 @@ class HelperActivity : Activity() {
      * 한참 조용하면(신호 말을 잊었으면) 그때까지 한 말로 마무리.
      */
     /**
-     * 말이 잠깐 끊겨도 멈추지 않고 계속 들음. "보내 줘"·"끝"이 들려야(또는 버튼을 눌러야) 마무리.
+     * 말이 잠깐 끊겨도 멈추지 않고 계속 들음. "~라고 보내 줘"가 들려야(또는 버튼을 눌러야) 마무리.
      * 너무 오래 조용하면 보내지 않고 잠시 멈춤 (들은 말은 그대로 두고 이어서 말할 수 있음)
      */
     private fun keepListening() {
@@ -547,7 +547,7 @@ class HelperActivity : Activity() {
         resetMic()
         paused = true
         micButton.text = "🎤 이어서 말하기"
-        heardView.text = heard.toString().trim() + "\n\n(잠시 멈췄어요. 🎤를 누르고 이어서 말한 뒤 \"보내 줘\"라고 하세요)"
+        heardView.text = heard.toString().trim() + "\n\n(잠시 멈췄어요. 🎤를 누르고 이어서 말한 뒤 \"…라고 보내 줘\"라고 하세요)"
     }
 
     // ───────── 다듬기 ─────────
